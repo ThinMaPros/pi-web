@@ -63,14 +63,53 @@ export async function resolvePatternMatches(
   return resolutions;
 }
 
+/** Glob shapes tried for a provider, shortest first. */
+const PROVIDER_GLOB_CANDIDATES = ["*", "**"];
+
+/**
+ * For each provider, the shortest glob that resolves to exactly its models.
+ *
+ * `provider/*` is not that glob whenever a model id contains a slash: pi matches
+ * patterns with minimatch, whose `*` stops at `/`, so `commandcode/*` misses
+ * `commandcode/sakana/fugu-ultra` and every other nested id. Writing an assumed
+ * glob would silently disable those models, so each candidate is resolved and
+ * kept only when its match set is exactly the provider's model set. A provider
+ * that no candidate covers is simply absent here and gets explicit entries.
+ */
+export async function resolveProviderGlobs(
+  models: readonly Model<Api>[],
+): Promise<Record<string, string>> {
+  const refsByProvider = new Map<string, Set<string>>();
+  for (const model of models) {
+    const refs = refsByProvider.get(model.provider);
+    if (refs) refs.add(modelRef(model));
+    else refsByProvider.set(model.provider, new Set([modelRef(model)]));
+  }
+
+  const globs: Record<string, string> = {};
+  for (const [provider, refs] of refsByProvider) {
+    const candidates = PROVIDER_GLOB_CANDIDATES.map((suffix) => `${provider}/${suffix}`);
+    for (const resolution of await resolvePatternMatches(candidates, models)) {
+      if (resolution.matched.length !== refs.size) continue;
+      if (!resolution.matched.every((ref) => refs.has(ref))) continue;
+      globs[provider] = resolution.pattern;
+      break;
+    }
+  }
+  return globs;
+}
+
 export async function buildEnabledModelsInput(
   patterns: string[] | undefined,
   models: readonly Model<Api>[],
+  options: { withProviderGlobs?: boolean } = {},
 ): Promise<EnabledModelsInput> {
   return {
     patterns,
     availableRefs: models.map(modelRef),
     resolutions: await resolvePatternMatches(patterns ?? [], models),
+    // Only an edit needs them; the read-only view never writes a pattern.
+    ...(options.withProviderGlobs ? { providerGlobs: await resolveProviderGlobs(models) } : {}),
   };
 }
 

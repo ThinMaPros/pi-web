@@ -45,11 +45,19 @@ when the patterns resolve to nothing, so "disable everything" silently means
   suffix; a pattern that matched only that model is dropped.
 - Switching a model on appends `provider/modelId` at the end. When that
   completes a provider the same action touched, its entries collapse into one
-  `provider/*` at the first slot they occupied — unless a pin is involved, which
-  a glob cannot carry.
-- The first edit against an unscoped setting materializes one `provider/*` per
+  provider glob at the first slot they occupied — unless a pin is involved,
+  which a glob cannot carry.
+- The first edit against an unscoped setting materializes one provider glob per
   provider instead of enumerating the catalog, so models added later stay
   enabled.
+- **A provider glob is verified, never assumed.** pi matches with minimatch,
+  whose `*` does not cross `/`, so `commandcode/*` matches `commandcode/gpt-5.5`
+  but not `commandcode/sakana/fugu-ultra`. `resolveProviderGlobs()` resolves
+  `provider/*`, then `provider/**`, and keeps the first whose match set is
+  exactly that provider's models; a provider neither covers is written model by
+  model. Assuming the glob made "Enable all" store `commandcode/*` and report
+  15 of 71 models enabled, because the collapse replaced the 56 explicit entries
+  it had just added.
 - The key is removed once nothing is narrowed any more, but only when that
   discards neither a stale pattern nor a pin.
 - Entry order is preserved: it is pi's model cycling order and the fallback for

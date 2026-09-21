@@ -130,7 +130,7 @@ export async function PUT(req: Request) {
       );
     }
 
-    const input = await buildEnabledModelsInput(patterns, context.models);
+    const input = await buildEnabledModelsInput(patterns, context.models, { withProviderGlobs: true });
     let edit;
     if (op === "clear") {
       edit = clearEnabledModels(input);

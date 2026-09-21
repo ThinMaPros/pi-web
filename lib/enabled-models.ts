@@ -44,6 +44,16 @@ export interface EnabledModelsInput {
   availableRefs: readonly string[];
   /** Resolution of each entry of `patterns`, index-aligned. */
   resolutions: readonly PatternResolution[];
+  /**
+   * Per provider, a glob **verified** to match exactly that provider's
+   * available models — nothing more, nothing less.
+   *
+   * Never assume `provider/*` here: minimatch's `*` does not cross `/`, so that
+   * glob silently misses every model whose id contains a slash
+   * (`commandcode/sakana/fugu-ultra`, most OpenRouter ids). A provider with no
+   * verified glob is written out model by model instead.
+   */
+  providerGlobs?: Readonly<Record<string, string>>;
 }
 
 export interface EnabledModelsState {
@@ -161,31 +171,35 @@ function refsOfProvider(availableRefs: readonly string[], provider: string): str
  * Make the current selection explicit so a single toggle can edit it.
  *
  * "Everything enabled" is stored as no patterns at all (or as patterns that all
- * went stale). Materializing it as one `provider/*` glob per provider keeps the
+ * went stale). Materializing it as one verified glob per provider keeps the
  * written setting short and lets models added later stay enabled, unlike the
- * TUI, which writes out every model id.
+ * TUI, which writes out every model id. A provider without such a glob falls
+ * back to one entry per model, which is correct if less tidy.
  */
 function materializeEntries(input: EnabledModelsInput): Entry[] {
   const entries = toEntries(input.resolutions);
   if (enabledRefs(entries).length > 0) return entries;
   for (const provider of providerOrder(input.availableRefs)) {
-    entries.push({
-      pattern: `${provider}/*`,
-      matched: refsOfProvider(input.availableRefs, provider),
-    });
+    const refs = refsOfProvider(input.availableRefs, provider);
+    const glob = input.providerGlobs?.[provider];
+    if (glob) entries.push({ pattern: glob, matched: refs });
+    else for (const ref of refs) entries.push({ pattern: ref, matched: [ref] });
   }
   return entries;
 }
 
 /**
- * Replace the entries of a fully enabled provider with a single `provider/*`.
+ * Replace the entries of a fully enabled provider with its verified glob.
  *
  * Only called for providers the caller just enabled, so an unrelated
- * hand-written list is never rewritten. Skipped when any pattern touching the
- * provider pins a thinking level, since a glob cannot carry per-model pins.
+ * hand-written list is never rewritten. Skipped when the provider has no glob
+ * that covers exactly its models, and when any pattern touching the provider
+ * pins a thinking level, since a glob cannot carry per-model pins.
  */
-function collapseProvider(entries: Entry[], availableRefs: readonly string[], provider: string): Entry[] {
-  const providerRefs = refsOfProvider(availableRefs, provider);
+function collapseProvider(entries: Entry[], input: EnabledModelsInput, provider: string): Entry[] {
+  const providerGlob = input.providerGlobs?.[provider];
+  if (!providerGlob) return entries;
+  const providerRefs = refsOfProvider(input.availableRefs, provider);
   if (providerRefs.length === 0) return entries;
 
   const providerSet = new Set(providerRefs);
@@ -199,7 +213,7 @@ function collapseProvider(entries: Entry[], availableRefs: readonly string[], pr
   const firstSubset = entries.findIndex(isSubset);
   if (firstSubset < 0) return entries;
 
-  const glob: Entry = { pattern: `${provider}/*`, matched: providerRefs };
+  const glob: Entry = { pattern: providerGlob, matched: providerRefs };
   return entries
     .map((entry, index) => (index === firstSubset ? glob : entry))
     .filter((entry, index) => index === firstSubset || !isSubset(entry));
@@ -270,7 +284,7 @@ export function setModelsEnabled(
       entries.push({ pattern: ref, matched: [ref] });
     }
     for (const provider of appendedProviders) {
-      entries = collapseProvider(entries, input.availableRefs, provider);
+      entries = collapseProvider(entries, input, provider);
     }
   } else {
     const removed = new Set(targets);
