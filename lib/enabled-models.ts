@@ -191,10 +191,10 @@ function materializeEntries(input: EnabledModelsInput): Entry[] {
 /**
  * Replace the entries of a fully enabled provider with its verified glob.
  *
- * Only called for providers the caller just enabled, so an unrelated
- * hand-written list is never rewritten. Skipped when the provider has no glob
- * that covers exactly its models, and when any pattern touching the provider
- * pins a thinking level, since a glob cannot carry per-model pins.
+ * Skipped when the provider has no glob covering exactly its models, when it
+ * has fewer than two entries to merge, when any pattern touching the provider
+ * pins a thinking level (a glob cannot carry per-model pins), and when a wider
+ * pattern already covers the provider, where rewriting would gain nothing.
  */
 function collapseProvider(entries: Entry[], input: EnabledModelsInput, provider: string): Entry[] {
   const providerGlob = input.providerGlobs?.[provider];
@@ -210,13 +210,41 @@ function collapseProvider(entries: Entry[], input: EnabledModelsInput, provider:
   if (providerRefs.some((ref) => !covered.has(ref))) return entries;
 
   const isSubset = (entry: Entry) => entry.matched.length > 0 && entry.matched.every((ref) => providerSet.has(ref));
+  // Merging needs at least two entries. A lone exact reference is a deliberate
+  // pick, not an enumeration to tidy up, even when it happens to be the only
+  // model the provider offers today.
+  if (entries.filter(isSubset).length < 2) return entries;
   const firstSubset = entries.findIndex(isSubset);
   if (firstSubset < 0) return entries;
+
+  // A `**` or a cross-provider pattern already covering everything makes the
+  // provider's own entries redundant; leave that list alone.
+  const wider = new Set(involved.filter((entry) => !isSubset(entry)).flatMap((entry) => entry.matched));
+  if (providerRefs.every((ref) => wider.has(ref))) return entries;
 
   const glob: Entry = { pattern: providerGlob, matched: providerRefs };
   return entries
     .map((entry, index) => (index === firstSubset ? glob : entry))
     .filter((entry, index) => index === firstSubset || !isSubset(entry));
+}
+
+/**
+ * Write every fully enabled provider as its glob, not just the edited one.
+ *
+ * An explicit list is equivalent to the glob today and rots tomorrow: pi
+ * refreshes provider catalogs from the network into `models-store.json`, and a
+ * rename (deepseek's `deepseek-v4-flash` became `deepseek-flash`) leaves dead
+ * entries behind while the new model stays off, even though the user had asked
+ * for the whole provider. Normalizing on each write lets such a list heal
+ * itself. Providers that are only partly enabled keep their explicit entries,
+ * and stale entries are never touched.
+ */
+function normalizeProviderGlobs(entries: Entry[], input: EnabledModelsInput): Entry[] {
+  let normalized = entries;
+  for (const provider of providerOrder(input.availableRefs)) {
+    normalized = collapseProvider(normalized, input, provider);
+  }
+  return normalized;
 }
 
 function serialize(entries: readonly Entry[], input: EnabledModelsInput): string[] | undefined {
@@ -276,15 +304,10 @@ export function setModelsEnabled(
 
   if (enabled) {
     const current = new Set(enabledRefs(entries));
-    const appendedProviders = new Set<string>();
     for (const ref of targets) {
       if (current.has(ref)) continue;
       current.add(ref);
-      appendedProviders.add(modelRefProvider(ref));
       entries.push({ pattern: ref, matched: [ref] });
-    }
-    for (const provider of appendedProviders) {
-      entries = collapseProvider(entries, input, provider);
     }
   } else {
     const removed = new Set(targets);
@@ -303,7 +326,7 @@ export function setModelsEnabled(
     entries = next;
   }
 
-  const patterns = serialize(entries, input);
+  const patterns = serialize(normalizeProviderGlobs(entries, input), input);
   return { ok: true, patterns, changed: !samePatterns(patterns, input.patterns) };
 }
 
@@ -315,6 +338,24 @@ export function setModelsEnabled(
  * credential back, say), which is the opposite of what "show every model" asks
  * for.
  */
+/**
+ * Drop the entries that match no available model.
+ *
+ * Every other operation preserves them, because an entry usually goes unmatched
+ * for a reason that can reverse itself (a provider signed out, a catalog not
+ * refreshed yet). This one is the user saying they are gone for good, so it is
+ * the only way to clean up after a provider renamed its models.
+ */
+export function pruneStaleEnabledModels(input: EnabledModelsInput): EnabledModelsEdit {
+  const kept = toEntries(input.resolutions).filter((entry) => entry.matched.length > 0);
+  if (kept.length === input.resolutions.length) {
+    return { ok: true, patterns: input.patterns, changed: false };
+  }
+  // Nothing left to narrow with: drop the key instead of writing an empty list.
+  const patterns = kept.length === 0 ? undefined : serialize(kept, input);
+  return { ok: true, patterns, changed: !samePatterns(patterns, input.patterns) };
+}
+
 export function clearEnabledModels(input: EnabledModelsInput): EnabledModelsEdit {
   return { ok: true, patterns: undefined, changed: input.patterns !== undefined };
 }

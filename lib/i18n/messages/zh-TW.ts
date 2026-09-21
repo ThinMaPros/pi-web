@@ -596,6 +596,8 @@ export const zhTWLocale: LocalePlugin = {
     "models.enabledBanner": "模型選擇器已限制為 {total} 個中的 {enabled} 個",
     "models.enabledStale": "比對不到可用模型的設定已原樣保留（{count} 筆）",
     "models.enabledStaleHint": "模型可用的前提是它所屬的 provider 有可用憑證。憑證缺失、模型被改名或刪除、設定是給別的機器寫的，都會讓條目比對不到任何模型。",
+    "models.enabledPrune": "清理無效條目",
+    "models.enabledPruneHint": "刪除比對不到任何可用模型的設定條目，其餘保持不變。",
     "models.enabledClear": "啟用全部模型",
     "models.enabledClearHint": "清除所有 provider 的模型篩選。",
     "i18n.testingModel": "正在測試模型連線...",

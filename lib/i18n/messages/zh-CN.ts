@@ -596,6 +596,8 @@ export const zhCNLocale: LocalePlugin = {
     "models.enabledBanner": "模型选择器已限制为 {total} 个中的 {enabled} 个",
     "models.enabledStale": "匹配不到可用模型的配置已原样保留（{count} 条）",
     "models.enabledStaleHint": "模型可用的前提是它所属的 provider 有可用凭证。凭证缺失、模型被改名或删除、配置是给别的机器写的，都会让条目匹配不到任何模型。",
+    "models.enabledPrune": "清理无效条目",
+    "models.enabledPruneHint": "删除匹配不到任何可用模型的配置条目，其余保持不变。",
     "models.enabledClear": "启用全部模型",
     "models.enabledClearHint": "清除所有 provider 的模型筛选。",
     "i18n.testingModel": "正在测试模型连接...",

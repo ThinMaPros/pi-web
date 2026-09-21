@@ -37,12 +37,14 @@ export interface EnabledModelsController {
   setModels: (key: string, refs: string[], enabled: boolean) => void;
   setProvider: (providerId: string, enabled: boolean) => void;
   clearScope: () => void;
+  pruneStale: () => void;
 }
 
 type MutationBody =
   | { op: "models"; refs: string[]; enabled: boolean }
   | { op: "provider"; provider: string; enabled: boolean }
-  | { op: "clear" };
+  | { op: "clear" }
+  | { op: "prune" };
 
 const FAILURE_KEYS: Record<string, string> = {
   "last-model": "models.enabledLastModel",
@@ -114,8 +116,9 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
   }, [mutate]);
 
   const clearScope = useCallback(() => mutate("clear", { op: "clear" }), [mutate]);
+  const pruneStale = useCallback(() => mutate("prune", { op: "prune" }), [mutate]);
 
-  return { view, loading, pending, failure, setModels, setProvider, clearScope };
+  return { view, loading, pending, failure, setModels, setProvider, clearScope, pruneStale };
 }
 
 /** Panel-wide note shown while `enabledModels` narrows the selector. */
@@ -138,6 +141,16 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
           : t("models.enabledStale", { count: stale })}
         {scoped && stale > 0 && ` · ${t("models.enabledStale", { count: stale })}`}
       </span>
+      {view.editable && stale > 0 && (
+        <ConfigButton
+          size="small"
+          onClick={controller.pruneStale}
+          disabled={pending !== null}
+          title={t("models.enabledPruneHint")}
+        >
+          {t("models.enabledPrune")}
+        </ConfigButton>
+      )}
       {view.editable && scoped && (
         <ConfigButton
           size="small"

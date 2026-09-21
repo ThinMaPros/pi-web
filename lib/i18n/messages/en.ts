@@ -596,6 +596,8 @@ export const enLocale: LocalePlugin = {
     "models.enabledBanner": "Model selector limited to {enabled} of {total} models",
     "models.enabledStale": "entries that match no available model are kept as they are ({count})",
     "models.enabledStaleHint": "A model is available when its provider has a usable credential. An entry matches nothing when that credential is missing, when the model was renamed or deleted, or when the entry was written for another machine.",
+    "models.enabledPrune": "Remove unmatched entries",
+    "models.enabledPruneHint": "Delete the configured entries that match no available model. Everything else stays as it is.",
     "models.enabledClear": "Enable all models",
     "models.enabledClearHint": "Remove the model filter for every provider.",
     "i18n.testingModel": "Testing model connection...",

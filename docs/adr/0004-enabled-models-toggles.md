@@ -43,10 +43,16 @@ when the patterns resolve to nothing, so "disable everything" silently means
 - Switching a model off expands **only** the patterns that cover it, in place,
   into explicit `provider/modelId` entries that keep the original `:level`
   suffix; a pattern that matched only that model is dropped.
-- Switching a model on appends `provider/modelId` at the end. When that
-  completes a provider the same action touched, its entries collapse into one
-  provider glob at the first slot they occupied — unless a pin is involved,
-  which a glob cannot carry.
+- Switching a model on appends `provider/modelId` at the end.
+- **Every write normalizes fully enabled providers**, not just the edited one:
+  two or more entries covering all of a provider's models collapse into its
+  glob, at the first slot they occupied. pi refreshes provider catalogs from the
+  network into `models-store.json`, so an enumerated list rots — deepseek
+  renamed `deepseek-v4-flash` to `deepseek-flash`, leaving dead entries behind
+  while the new model stayed off, although the user had asked for the whole
+  provider. A glob heals itself. Skipped when a pin is involved (a glob cannot
+  carry one), when a wider pattern already covers the provider, and for a lone
+  exact reference, which is a deliberate pick rather than an enumeration.
 - The first edit against an unscoped setting materializes one provider glob per
   provider instead of enumerating the catalog, so models added later stay
   enabled.
@@ -60,6 +66,10 @@ when the patterns resolve to nothing, so "disable everything" silently means
   it had just added.
 - The key is removed once nothing is narrowed any more, but only when that
   discards neither a stale pattern nor a pin.
+- `prune` is the one operation that deletes unmatched entries. Every other one
+  preserves them because an entry usually goes unmatched for a reversible
+  reason; a provider that renamed its models is not reversible, so the panel
+  offers this explicitly instead of making the user clear the whole scope.
 - Entry order is preserved: it is pi's model cycling order and the fallback for
   the initial model of a new session.
 

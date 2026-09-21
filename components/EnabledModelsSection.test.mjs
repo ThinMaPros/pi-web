@@ -145,6 +145,12 @@ test("the section is mounted for built-in, api-key and custom providers", () => 
   assert.match(modelsConfigSource, /<EnabledModelsBanner controller=\{enabledModels\} \/>/);
 });
 
+test("the banner offers to prune unmatched entries only when there are some", () => {
+  assert.match(source, /view\.editable && stale > 0 && \(/);
+  assert.match(source, /onClick=\{controller\.pruneStale\}/);
+  assert.match(source, /const pruneStale = useCallback\(\(\) => mutate\("prune", \{ op: "prune" \}\)/);
+});
+
 test("provider rows carry the scope badge", () => {
   const sidebar = modelsConfigSource.slice(
     modelsConfigSource.indexOf("<ConfigSidebar>"),

@@ -2,7 +2,7 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { getAgentDir, SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { clearEnabledModels, setModelsEnabled } from "@/lib/enabled-models";
+import { clearEnabledModels, pruneStaleEnabledModels, setModelsEnabled } from "@/lib/enabled-models";
 import {
   buildEnabledModelsInput,
   buildEnabledModelsView,
@@ -107,10 +107,10 @@ export async function PUT(req: Request) {
   }
 
   const op = body.op;
-  if (op !== "models" && op !== "provider" && op !== "clear") {
+  if (op !== "models" && op !== "provider" && op !== "clear" && op !== "prune") {
     return Response.json({ error: "Invalid op" }, { status: 400 });
   }
-  if (op !== "clear" && typeof body.enabled !== "boolean") {
+  if (op !== "clear" && op !== "prune" && typeof body.enabled !== "boolean") {
     return Response.json({ error: "enabled must be a boolean" }, { status: 400 });
   }
   if (body.cwd !== undefined && typeof body.cwd !== "string") {
@@ -134,6 +134,8 @@ export async function PUT(req: Request) {
     let edit;
     if (op === "clear") {
       edit = clearEnabledModels(input);
+    } else if (op === "prune") {
+      edit = pruneStaleEnabledModels(input);
     } else {
       let refs: string[];
       if (op === "provider") {
