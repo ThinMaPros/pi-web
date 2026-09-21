@@ -12,8 +12,9 @@
  *
  * Every operation here is therefore a *minimal edit* of the existing pattern
  * list:
- * - a pattern that matches nothing available is never touched (it belongs to a
- *   signed-out provider or another machine),
+ * - a pattern that matches no available model is never touched: its provider
+ *   may just be missing a credential, the model may have been renamed, or the
+ *   entry may have been written for another machine,
  * - only the pattern that actually covers a model being switched off is
  *   expanded, in place, into explicit `provider/modelId` entries that keep the
  *   original `:level` suffix,
@@ -52,7 +53,11 @@ export interface EnabledModelsState {
   enabled: string[];
   /** `provider/modelId` → thinking level pinned by a `:level` pattern. */
   pins: Record<string, string>;
-  /** Patterns that match no available model; preserved by every edit. */
+  /**
+   * Patterns that match no available model, so nothing here can tell what they
+   * were for — a provider without a usable credential, a renamed or deleted
+   * model, a typo, another machine's config. Preserved by every edit.
+   */
   stalePatterns: string[];
 }
 
@@ -292,8 +297,9 @@ export function setModelsEnabled(
  * Remove the scope entirely so every model is enabled again.
  *
  * This is the one operation that also drops stale patterns: keeping them would
- * re-narrow the selector the moment their provider is signed in again, which is
- * the opposite of what "show every model" asks for.
+ * re-narrow the selector the moment they match again (the provider gets a
+ * credential back, say), which is the opposite of what "show every model" asks
+ * for.
  */
 export function clearEnabledModels(input: EnabledModelsInput): EnabledModelsEdit {
   return { ok: true, patterns: undefined, changed: input.patterns !== undefined };

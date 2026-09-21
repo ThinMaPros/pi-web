@@ -129,7 +129,10 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
 
   return (
     <div className="enabled-models-banner">
-      <span className="enabled-models-banner-text">
+      <span
+        className="enabled-models-banner-text"
+        {...(stale > 0 ? { title: t("models.enabledStaleHint") } : {})}
+      >
         {scoped
           ? t("models.enabledBanner", { enabled: view.enabledTotal, total: view.availableTotal })
           : t("models.enabledStale", { count: stale })}

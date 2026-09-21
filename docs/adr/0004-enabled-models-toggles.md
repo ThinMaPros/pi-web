@@ -34,8 +34,12 @@ when the patterns resolve to nothing, so "disable everything" silently means
 **Every toggle is a minimal edit of the existing pattern list**
 (`lib/enabled-models.ts`, pure; `lib/enabled-models-runtime.ts`, SDK adapter):
 
-- A pattern matching no available model is never touched — it belongs to a
-  signed-out provider or another machine.
+- A pattern matching no available model is never touched. "Available" means the
+  model's provider passed `checkAuth()` — a credential in `auth.json`, a
+  runtime key, a models.json `apiKey`, or an environment variable — so an entry
+  can stop matching because that credential is gone, because the model was
+  renamed or deleted, or because it was written on another machine. None of
+  those is a reason to drop it.
 - Switching a model off expands **only** the patterns that cover it, in place,
   into explicit `provider/modelId` entries that keep the original `:level`
   suffix; a pattern that matched only that model is dropped.
