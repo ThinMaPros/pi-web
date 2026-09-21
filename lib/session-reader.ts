@@ -218,14 +218,25 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
   return attachSessionProjectInfo(sessions);
 }
 
-export async function listAllSessions(options: { force?: boolean } = {}): Promise<SessionInfo[]> {
+export async function listAllSessions(options: { force?: boolean; allowStale?: boolean } = {}): Promise<SessionInfo[]> {
   if (options.force) invalidateSessionListCache();
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
   // Return cached result if still fresh (avoids re-scanning session files
   // and re-spawning git processes on every page load).
-  if (globalThis.__piSessionListCache && Date.now() - globalThis.__piSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS) {
-    return globalThis.__piSessionListCache.data;
+  const cache = globalThis.__piSessionListCache;
+  if (cache && cache.generation === generation && Date.now() - cache.ts < SESSION_LIST_CACHE_TTL_MS) {
+    return cache.data;
+  }
+
+  // Callers that only need session metadata — mapping search hits onto sidebar
+  // rows, for example — can take the previous scan and let the rebuild happen in
+  // the background. A rebuild costs hundreds of milliseconds because it re-reads
+  // every forked and subagent session, and it is triggered by ordinary agent
+  // activity rather than by anything the caller did.
+  if (options.allowStale && cache) {
+    void listAllSessions().catch(() => undefined);
+    return cache.data;
   }
 
   // Coalescing dedup: concurrent callers share the same in-flight promise
@@ -241,7 +252,7 @@ export async function listAllSessions(options: { force?: boolean } = {}): Promis
     if ((globalThis.__piSessionListGeneration ?? 0) !== generation) {
       return listAllSessions();
     }
-    globalThis.__piSessionListCache = { data, ts: Date.now() };
+    globalThis.__piSessionListCache = { data, ts: Date.now(), generation };
     return data;
   });
   const trackedPromise = loadPromise.finally(() => {
@@ -265,7 +276,7 @@ declare global {
   var __piSessionListPromise: Promise<SessionInfo[]> | undefined;
   var __piSessionListPromiseGeneration: number | undefined;
   var __piSessionListGeneration: number | undefined;
-  var __piSessionListCache: { data: SessionInfo[]; ts: number } | undefined;
+  var __piSessionListCache: { data: SessionInfo[]; ts: number; generation: number } | undefined;
 }
 
 const SESSION_LIST_CACHE_TTL_MS = 30_000;
@@ -357,7 +368,9 @@ function findSessionIdByPath(filePath: string): string | undefined {
 
 export function invalidateSessionListCache(): void {
   globalThis.__piSessionListGeneration = (globalThis.__piSessionListGeneration ?? 0) + 1;
-  globalThis.__piSessionListCache = undefined;
+  // The previous scan is kept, not discarded: it is no longer fresh, but it is
+  // still a complete catalogue apart from sessions created moments ago. Callers
+  // that pass `allowStale` read it instead of paying for a rebuild.
 }
 
 export function getSessionListVersion(): number {
