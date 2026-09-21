@@ -124,9 +124,8 @@ test("switches are locked while the scope is not editable", () => {
 });
 
 test("custom providers get the provider-level actions only", () => {
-  assert.match(source, /const custom = provider\.kind === "custom";/);
-  assert.match(source, /const shown = custom \? provider\.models : filterEnabledModels/);
-  assert.match(source, /custom \? \(\s*\n\s*<div className="enabled-models-note">\{t\("models\.enabledCustomHint"\)\}<\/div>/);
+  assert.match(source, /const shown = provider\.kind === "custom" \? provider\.models : filterEnabledModels/);
+  assert.match(source, /provider\.kind === "custom" \? \(\s*\n\s*<div className="enabled-models-note">\{t\("models\.enabledCustomHint"\)\}<\/div>/);
 });
 
 test("the section is mounted for built-in, api-key and custom providers", () => {
@@ -140,7 +139,7 @@ test("the section is mounted for built-in, api-key and custom providers", () => 
   );
   assert.match(
     modelsConfigSource,
-    /<EnabledModelsSection providerId=\{name\} controller=\{enabledModels\} \/>/,
+    /<EnabledModelsSection providerId=\{name\} controller=\{enabledModels\} custom \/>/,
   );
   assert.match(modelsConfigSource, /<EnabledModelsBanner controller=\{enabledModels\} \/>/);
 });
@@ -149,6 +148,17 @@ test("the banner offers to prune unmatched entries only when there are some", ()
   assert.match(source, /view\.editable && stale > 0 && \(/);
   assert.match(source, /onClick=\{controller\.pruneStale\}/);
   assert.match(source, /const pruneStale = useCallback\(\(\) => mutate\("prune", \{ op: "prune" \}\)/);
+});
+
+test("a missing custom provider is not blamed on a sign-in", () => {
+  assert.match(source, /t\(custom \? "models\.enabledCustomEmpty" : "models\.enabledUnavailable"\)/);
+  assert.match(modelsConfigSource, /<EnabledModelsSection providerId=\{name\} controller=\{enabledModels\} custom \/>/);
+});
+
+test("saving models.json re-reads the switches and carries renames over", () => {
+  assert.match(modelsConfigSource, /if \(renames\.length > 0\) enabledModels\.renameProviders\(renames\);\s*\n\s*else enabledModels\.refresh\(\);/);
+  assert.match(modelsConfigSource, /savedProvidersRef\.current\.has\(original\)/);
+  assert.match(source, /const refresh = useCallback\(\(\) => setReloadKey/);
 });
 
 test("provider rows carry the scope badge", () => {

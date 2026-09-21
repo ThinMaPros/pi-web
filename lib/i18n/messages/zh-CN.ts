@@ -593,6 +593,7 @@ export const zhCNLocale: LocalePlugin = {
     "models.enabledProjectScope": "当前项目的 .pi/settings.json 设置了 enabledModels 并覆盖全局配置，因此这些开关为只读。请直接修改该文件。",
     "models.enabledCustomHint": "自定义 provider 只能整体开关。若只想隐藏单个模型，请在左侧列表中删除该模型。",
     "models.enabledUnavailable": "登录该 provider 后即可选择模型。",
+    "models.enabledCustomEmpty": "这个 provider 目前没有可用模型。请先保存修改，并确认 API key 有效。",
     "models.enabledBanner": "模型选择器已限制为 {total} 个中的 {enabled} 个",
     "models.enabledStale": "匹配不到可用模型的配置已原样保留（{count} 条）",
     "models.enabledStaleHint": "模型可用的前提是它所属的 provider 有可用凭证。凭证缺失、模型被改名或删除、配置是给别的机器写的，都会让条目匹配不到任何模型。",

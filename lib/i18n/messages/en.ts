@@ -593,6 +593,7 @@ export const enLocale: LocalePlugin = {
     "models.enabledProjectScope": "This project's .pi/settings.json sets enabledModels and overrides the global value, so these switches are read-only. Edit that file to change the list.",
     "models.enabledCustomHint": "Custom providers are switched as a whole. Delete a model in the sidebar to hide only that one.",
     "models.enabledUnavailable": "Sign in to this provider to choose its models.",
+    "models.enabledCustomEmpty": "No models available from this provider yet. Save your changes, and check that the API key works.",
     "models.enabledBanner": "Model selector limited to {enabled} of {total} models",
     "models.enabledStale": "entries that match no available model are kept as they are ({count})",
     "models.enabledStaleHint": "A model is available when its provider has a usable credential. An entry matches nothing when that credential is missing, when the model was renamed or deleted, or when the entry was written for another machine.",

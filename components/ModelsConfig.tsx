@@ -541,7 +541,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
         )}
       </div>
 
-      <EnabledModelsSection providerId={name} controller={enabledModels} />
+      <EnabledModelsSection providerId={name} controller={enabledModels} custom />
     </div>
   );
 }
@@ -1855,6 +1855,9 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** Provider ids as models.json has them on disk, and where renames moved them. */
+  const savedProvidersRef = useRef<Set<string>>(new Set());
+  const renamesRef = useRef<Map<string, string>>(new Map());
 
   const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -1872,6 +1875,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
       .then((d: ModelsJson) => {
         const normalized = d.providers ? d : { ...d, providers: {} };
         setConfig(normalized);
+        savedProvidersRef.current = new Set(Object.keys(normalized.providers ?? {}));
         const keys = Object.keys(normalized.providers ?? {});
         setSelection((current) => current && customSelectionExists(normalized, current)
           ? current
@@ -1901,6 +1905,17 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   }, []);
 
   const renameProvider = useCallback((oldName: string, newName: string) => {
+    // Remember where each saved provider ended up, so the enabledModels entries
+    // can follow it on save instead of pointing at an id that no longer exists.
+    const renames = renamesRef.current;
+    let original = oldName;
+    for (const [from, to] of renames) {
+      if (to !== oldName) continue;
+      original = from;
+      break;
+    }
+    if (original === newName) renames.delete(original);
+    else if (savedProvidersRef.current.has(original)) renames.set(original, newName);
     setConfig((prev) => {
       const entries = Object.entries(prev.providers ?? {});
       const idx = entries.findIndex(([k]) => k === oldName);
@@ -1987,13 +2002,24 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
+      else {
+        setSavedOk(true);
+        setTimeout(() => setSavedOk(false), 2000);
+        // models.json just changed under the switches: providers may have been
+        // renamed, models added or deleted. Carry the entries of renamed
+        // providers over and re-read either way.
+        const renames = [...renamesRef.current].map(([from, to]) => ({ from, to }));
+        savedProvidersRef.current = new Set(Object.keys(config.providers ?? {}));
+        renamesRef.current.clear();
+        if (renames.length > 0) enabledModels.renameProviders(renames);
+        else enabledModels.refresh();
+      }
     } catch (e) {
       setSaveError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, enabledModels]);
 
   const providers = Object.entries(config.providers ?? {});
   // `12/40` next to a provider makes a narrowed selector visible at a glance.

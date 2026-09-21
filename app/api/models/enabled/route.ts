@@ -2,7 +2,13 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { getAgentDir, SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { clearEnabledModels, pruneStaleEnabledModels, setModelsEnabled } from "@/lib/enabled-models";
+import {
+  clearEnabledModels,
+  pruneStaleEnabledModels,
+  renameProviderEntries,
+  setModelsEnabled,
+  type ProviderRename,
+} from "@/lib/enabled-models";
 import {
   buildEnabledModelsInput,
   buildEnabledModelsView,
@@ -90,7 +96,20 @@ interface EnabledModelsRequest {
   op?: unknown;
   provider?: unknown;
   refs?: unknown;
+  renames?: unknown;
   enabled?: unknown;
+}
+
+function providerRenames(value: unknown): ProviderRename[] | null {
+  if (!Array.isArray(value)) return null;
+  const renames: ProviderRename[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const { from, to } = entry as Record<string, unknown>;
+    if (typeof from !== "string" || typeof to !== "string" || !from || !to) return null;
+    renames.push({ from, to });
+  }
+  return renames;
 }
 
 function stringArray(value: unknown): string[] | null {
@@ -107,11 +126,13 @@ export async function PUT(req: Request) {
   }
 
   const op = body.op;
-  if (op !== "models" && op !== "provider" && op !== "clear" && op !== "prune") {
+  if (op !== "models" && op !== "provider" && op !== "clear" && op !== "prune" && op !== "rename") {
     return Response.json({ error: "Invalid op" }, { status: 400 });
   }
-  if (op !== "clear" && op !== "prune" && typeof body.enabled !== "boolean") {
-    return Response.json({ error: "enabled must be a boolean" }, { status: 400 });
+  if (op === "models" || op === "provider") {
+    if (typeof body.enabled !== "boolean") {
+      return Response.json({ error: "enabled must be a boolean" }, { status: 400 });
+    }
   }
   if (body.cwd !== undefined && typeof body.cwd !== "string") {
     return Response.json({ error: "Invalid cwd" }, { status: 400 });
@@ -136,6 +157,10 @@ export async function PUT(req: Request) {
       edit = clearEnabledModels(input);
     } else if (op === "prune") {
       edit = pruneStaleEnabledModels(input);
+    } else if (op === "rename") {
+      const renames = providerRenames(body.renames);
+      if (!renames) return Response.json({ error: "renames must be {from,to} pairs" }, { status: 400 });
+      edit = renameProviderEntries(input, renames);
     } else {
       let refs: string[];
       if (op === "provider") {

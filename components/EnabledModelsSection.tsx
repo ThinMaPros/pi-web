@@ -38,13 +38,18 @@ export interface EnabledModelsController {
   setProvider: (providerId: string, enabled: boolean) => void;
   clearScope: () => void;
   pruneStale: () => void;
+  /** Re-read after models.json changed under the panel. */
+  refresh: () => void;
+  /** Carry a custom provider's entries to the id it was just renamed to. */
+  renameProviders: (renames: { from: string; to: string }[]) => void;
 }
 
 type MutationBody =
   | { op: "models"; refs: string[]; enabled: boolean }
   | { op: "provider"; provider: string; enabled: boolean }
   | { op: "clear" }
-  | { op: "prune" };
+  | { op: "prune" }
+  | { op: "rename"; renames: { from: string; to: string }[] };
 
 const FAILURE_KEYS: Record<string, string> = {
   "last-model": "models.enabledLastModel",
@@ -57,6 +62,8 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
   const [pending, setPending] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const pendingRef = useRef<string | null>(null);
+
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -77,7 +84,7 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [cwd]);
+  }, [cwd, reloadKey]);
 
   const mutate = useCallback((key: string, body: MutationBody) => {
     if (pendingRef.current) return;
@@ -117,8 +124,25 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
 
   const clearScope = useCallback(() => mutate("clear", { op: "clear" }), [mutate]);
   const pruneStale = useCallback(() => mutate("prune", { op: "prune" }), [mutate]);
+  const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
+  // Renaming writes and returns the fresh view, so it doubles as the reload
+  // models.json needs after a save; a no-op rename list still re-reads.
+  const renameProviders = useCallback((renames: { from: string; to: string }[]) => {
+    mutate("rename", { op: "rename", renames });
+  }, [mutate]);
 
-  return { view, loading, pending, failure, setModels, setProvider, clearScope, pruneStale };
+  return {
+    view,
+    loading,
+    pending,
+    failure,
+    setModels,
+    setProvider,
+    clearScope,
+    pruneStale,
+    refresh,
+    renameProviders,
+  };
 }
 
 /** Panel-wide note shown while `enabledModels` narrows the selector. */
@@ -168,9 +192,12 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
 export function EnabledModelsSection({
   providerId,
   controller,
+  custom = false,
 }: {
   providerId: string;
   controller: EnabledModelsController;
+  /** True for a models.json provider, whose models the panel itself edits. */
+  custom?: boolean;
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
@@ -183,15 +210,21 @@ export function EnabledModelsSection({
     return <div className="enabled-models-empty">{t("agents.modelsLoading")}</div>;
   }
   if (!provider) {
+    // A models.json provider is missing from the runtime when its edits are not
+    // saved yet, when it has no models, or when its key does not work — never
+    // because of a sign-in, so do not send the user looking for one.
     return failure?.message
       ? <div className="enabled-models-error">{failure.message}</div>
-      : <div className="enabled-models-empty">{t("models.enabledUnavailable")}</div>;
+      : (
+        <div className="enabled-models-empty">
+          {t(custom ? "models.enabledCustomEmpty" : "models.enabledUnavailable")}
+        </div>
+      );
   }
 
-  const custom = provider.kind === "custom";
-  const shown = custom ? provider.models : filterEnabledModels(provider.models, query);
+  const shown = provider.kind === "custom" ? provider.models : filterEnabledModels(provider.models, query);
   const bulk = enabledModelsBulkActions(view, shown);
-  const filtered = !custom && shown.length !== provider.models.length;
+  const filtered = provider.kind !== "custom" && shown.length !== provider.models.length;
   const busy = pending !== null;
   const bulkKey = `provider:${provider.id}`;
   // A provider-wide action is resolved server-side so models the browser has
@@ -232,7 +265,7 @@ export function EnabledModelsSection({
         </div>
       )}
 
-      {custom ? (
+      {provider.kind === "custom" ? (
         <div className="enabled-models-note">{t("models.enabledCustomHint")}</div>
       ) : (
         <>

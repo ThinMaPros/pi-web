@@ -70,6 +70,11 @@ when the patterns resolve to nothing, so "disable everything" silently means
   preserves them because an entry usually goes unmatched for a reversible
   reason; a provider that renamed its models is not reversible, so the panel
   offers this explicitly instead of making the user clear the whole scope.
+- `rename` follows a custom provider whose id changed in models.json, as a
+  prefix rewrite of its entries. The panel tracks renames of already-saved
+  providers and sends them right after the models.json write; otherwise the
+  provider would come back with every model off, next to a pattern pointing at
+  an id that no longer exists.
 - Entry order is preserved: it is pi's model cycling order and the fallback for
   the initial model of a new session.
 
@@ -114,3 +119,7 @@ being forced into a binary control.
   refresh `AppShell` triggers when the settings panel closes.
 - pi-web never *creates* a `:thinkingLevel` pin. It preserves the ones it finds
   and shows them as a read-only badge.
+- The switches live inside the models.json editor, so a save under them changes
+  what they describe. Saving re-reads the view, and the section takes a `custom`
+  flag so a models.json provider the runtime does not know yet — unsaved, empty,
+  or with a key that does not work — is not reported as a missing sign-in.

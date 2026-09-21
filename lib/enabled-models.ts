@@ -338,6 +338,34 @@ export function setModelsEnabled(
  * credential back, say), which is the opposite of what "show every model" asks
  * for.
  */
+export interface ProviderRename {
+  from: string;
+  to: string;
+}
+
+/**
+ * Follow a custom provider that was renamed in models.json.
+ *
+ * Its entries would otherwise point at an id that no longer exists: the
+ * provider comes back with every model switched off and a dead pattern beside
+ * it. Renaming is a pure prefix rewrite, so a `:thinkingLevel` suffix and the
+ * entry order both survive.
+ */
+export function renameProviderEntries(
+  input: EnabledModelsInput,
+  renames: readonly ProviderRename[],
+): EnabledModelsEdit {
+  if (!input.patterns) return { ok: true, patterns: input.patterns, changed: false };
+  const applicable = renames.filter((rename) => rename.from && rename.to && rename.from !== rename.to);
+  if (applicable.length === 0) return { ok: true, patterns: input.patterns, changed: false };
+
+  const patterns = input.patterns.map((pattern) => {
+    const rename = applicable.find((candidate) => pattern.startsWith(`${candidate.from}/`));
+    return rename ? `${rename.to}${pattern.slice(rename.from.length)}` : pattern;
+  });
+  return { ok: true, patterns, changed: !samePatterns(patterns, input.patterns) };
+}
+
 /**
  * Drop the entries that match no available model.
  *
