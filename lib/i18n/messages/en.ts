@@ -588,6 +588,7 @@ export const enLocale: LocalePlugin = {
     "models.enabledFilterPlaceholder": "Filter {count} models…",
     "models.enabledNoMatches": "No matching models.",
     "models.enabledToggle": "Show {model} in the model selector",
+    "models.enabledProviderToggle": "Enable all {provider} models",
     "models.enabledPinHint": "Thinking level pinned by enabledModels. Edit settings.json to change it.",
     "models.enabledLastModel": "At least one model has to stay enabled.",
     "models.enabledProjectScope": "This project's .pi/settings.json sets enabledModels and overrides the global value, so these switches are read-only. Edit that file to change the list.",

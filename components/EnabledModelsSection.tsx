@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import type { EnabledModelsView } from "@/lib/enabled-models";
 import {
   enabledModelsBulkActions,
+  enabledModelsProviderToggle,
   filterEnabledModels,
   findProviderView,
   isLastEnabledModel,
@@ -249,9 +250,14 @@ export function EnabledModelsSection({
       );
   }
 
-  const shown = provider.kind === "custom" ? provider.models : filterEnabledModels(provider.models, query);
+  // A models.json provider has no rows of its own — the panel edits its models
+  // directly — so it is switched as a whole and one switch says everything the
+  // two bulk buttons said: they only ever sent the same provider-wide write.
+  const isCustom = provider.kind === "custom";
+  const shown = isCustom ? provider.models : filterEnabledModels(provider.models, query);
   const bulk = enabledModelsBulkActions(view, shown);
-  const filtered = provider.kind !== "custom" && shown.length !== provider.models.length;
+  const toggle = enabledModelsProviderToggle(view, provider);
+  const filtered = shown.length !== provider.models.length;
   const busy = pending !== null;
   const bulkKey = `provider:${provider.id}`;
   // A provider-wide action is resolved server-side so models the browser has
@@ -268,21 +274,35 @@ export function EnabledModelsSection({
         <span className="enabled-models-count">
           {t("models.enabledCount", { enabled: provider.enabledCount, total: provider.models.length })}
         </span>
-        <ConfigButton
-          size="small"
-          disabled={busy || !bulk.canEnable}
-          onClick={() => runBulk(true, bulk.enableRefs)}
-        >
-          {filtered ? t("models.enableShown") : t("models.enableAll")}
-        </ConfigButton>
-        <ConfigButton
-          size="small"
-          disabled={busy || !bulk.canDisable}
-          title={!bulk.canDisable && bulk.disableRefs.length > 0 ? t("models.enabledLastModel") : undefined}
-          onClick={() => runBulk(false, bulk.disableRefs)}
-        >
-          {filtered ? t("models.disableShown") : t("models.disableAll")}
-        </ConfigButton>
+        {isCustom ? (
+          <ConfigSwitch
+            checked={toggle.checked}
+            loading={pending === bulkKey}
+            disabled={busy || toggle.blocked}
+            label={toggle.checked && !bulk.canDisable
+              ? t("models.enabledLastModel")
+              : t("models.enabledProviderToggle", { provider: provider.name })}
+            onChange={(checked) => controller.setProvider(provider.id, checked)}
+          />
+        ) : (
+          <>
+            <ConfigButton
+              size="small"
+              disabled={busy || !bulk.canEnable}
+              onClick={() => runBulk(true, bulk.enableRefs)}
+            >
+              {filtered ? t("models.enableShown") : t("models.enableAll")}
+            </ConfigButton>
+            <ConfigButton
+              size="small"
+              disabled={busy || !bulk.canDisable}
+              title={!bulk.canDisable && bulk.disableRefs.length > 0 ? t("models.enabledLastModel") : undefined}
+              onClick={() => runBulk(false, bulk.disableRefs)}
+            >
+              {filtered ? t("models.disableShown") : t("models.disableAll")}
+            </ConfigButton>
+          </>
+        )}
       </div>
 
       {!view?.editable && <div className="enabled-models-note">{t("models.enabledProjectScope")}</div>}
@@ -292,7 +312,7 @@ export function EnabledModelsSection({
         </div>
       )}
 
-      {provider.kind === "custom" ? (
+      {isCustom ? (
         <div className="enabled-models-note">{t("models.enabledCustomHint")}</div>
       ) : (
         <>

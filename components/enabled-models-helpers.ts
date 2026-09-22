@@ -44,6 +44,32 @@ export function enabledModelsBulkActions(
   };
 }
 
+export interface EnabledModelsProviderToggle {
+  /** True when every model this provider offers is enabled. */
+  checked: boolean;
+  /** True when the switch cannot move in the direction it would go. */
+  blocked: boolean;
+}
+
+/**
+ * The single switch a models.json provider gets instead of per-model rows.
+ *
+ * Its two positions are "all of this provider's models" and "none of them",
+ * so it reads `checked` from the full count rather than from "any enabled":
+ * a partial selection left by the TUI or a hand-edited settings file shows as
+ * off, next to the `1/2 enabled` count, and one click completes it. Reading it
+ * the other way would make the partial state unreachable in both directions
+ * whenever the last-enabled-model guard blocks the way down.
+ */
+export function enabledModelsProviderToggle(
+  view: EnabledModelsView | null,
+  provider: EnabledModelsProviderView,
+): EnabledModelsProviderToggle {
+  const bulk = enabledModelsBulkActions(view, provider.models);
+  const checked = provider.models.length > 0 && provider.enabledCount === provider.models.length;
+  return { checked, blocked: checked ? !bulk.canDisable : !bulk.canEnable };
+}
+
 /** True when switching this single model off would empty the scope. */
 export function isLastEnabledModel(
   view: EnabledModelsView | null,

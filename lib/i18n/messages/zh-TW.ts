@@ -588,6 +588,7 @@ export const zhTWLocale: LocalePlugin = {
     "models.enabledFilterPlaceholder": "篩選 {count} 個模型…",
     "models.enabledNoMatches": "沒有符合的模型。",
     "models.enabledToggle": "在模型選擇器中顯示 {model}",
+    "models.enabledProviderToggle": "啟用 {provider} 的全部模型",
     "models.enabledPinHint": "由 enabledModels 固定的思考等級，需在 settings.json 中修改。",
     "models.enabledLastModel": "至少需要保留一個啟用的模型。",
     "models.enabledProjectScope": "目前專案的 .pi/settings.json 設定了 enabledModels 並覆寫全域設定，因此這些開關為唯讀。請直接修改該檔案。",

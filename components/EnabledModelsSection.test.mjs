@@ -6,6 +6,7 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const {
   enabledModelsBulkActions,
+  enabledModelsProviderToggle,
   filterEnabledModels,
   isLastEnabledModel,
   providerBadgeLabel,
@@ -123,9 +124,50 @@ test("switches are locked while the scope is not editable", () => {
   assert.match(source, /disabled=\{busy \|\| !view\?\.editable \|\| lastOne\}/);
 });
 
-test("custom providers get the provider-level actions only", () => {
-  assert.match(source, /const shown = provider\.kind === "custom" \? provider\.models : filterEnabledModels/);
-  assert.match(source, /provider\.kind === "custom" \? \(\s*\n\s*<div className="enabled-models-note">\{t\("models\.enabledCustomHint"\)\}<\/div>/);
+test("custom providers are switched by one switch, not two bulk buttons", () => {
+  assert.match(source, /const isCustom = provider\.kind === "custom";/);
+  assert.match(
+    source,
+    /\{isCustom \? \(\s*\n\s*<ConfigSwitch\s*\n\s*checked=\{toggle\.checked\}/,
+  );
+  assert.match(source, /onChange=\{\(checked\) => controller\.setProvider\(provider\.id, checked\)\}/);
+  assert.match(source, /\{isCustom \? \(\s*\n\s*<div className="enabled-models-note">\{t\("models\.enabledCustomHint"\)\}<\/div>/);
+});
+
+test("the provider switch is on only while every model of the provider is", () => {
+  const providerOf = (models, overrides = {}) => {
+    const full = view(models, overrides);
+    return [full, { ...full.providers[0], kind: "custom" }];
+  };
+
+  // Other providers keep models on, so both directions are live here.
+  const [allOn, allOnProvider] = providerOf([entry("sonnet", true), entry("opus", true)], { enabledTotal: 4 });
+  assert.deepEqual(enabledModelsProviderToggle(allOn, allOnProvider), { checked: true, blocked: false });
+
+  // A partial selection reads as off, and one click completes it.
+  const [partial, partialProvider] = providerOf([entry("sonnet", true), entry("opus", false)], { enabledTotal: 4 });
+  assert.deepEqual(enabledModelsProviderToggle(partial, partialProvider), { checked: false, blocked: false });
+
+  const [none, noneProvider] = providerOf([entry("sonnet", false), entry("opus", false)], { enabledTotal: 3 });
+  assert.deepEqual(enabledModelsProviderToggle(none, noneProvider), { checked: false, blocked: false });
+});
+
+test("the provider switch is locked when it would empty the scope or the file is read-only", () => {
+  const lockedOn = view([entry("sonnet", true), entry("opus", true)], { enabledTotal: 2 });
+  assert.deepEqual(
+    enabledModelsProviderToggle(lockedOn, { ...lockedOn.providers[0], kind: "custom" }),
+    { checked: true, blocked: true },
+  );
+
+  const readOnly = view([entry("sonnet", true), entry("opus", false)], {
+    scope: "project",
+    editable: false,
+    enabledTotal: 4,
+  });
+  assert.deepEqual(
+    enabledModelsProviderToggle(readOnly, { ...readOnly.providers[0], kind: "custom" }),
+    { checked: false, blocked: true },
+  );
 });
 
 test("the section is mounted for built-in, api-key and custom providers", () => {

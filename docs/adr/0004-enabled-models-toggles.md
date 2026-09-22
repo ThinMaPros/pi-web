@@ -103,17 +103,25 @@ would read as no scope at all.
 semantics exist only in the SDK resolver; duplicating them in client code is the
 bug `lib/model-scope.ts` already warns about (#307).
 
-**Built-in providers get per-model switches, custom providers one pair of
-buttons.** "Built-in" means pi's own providers plus anything an extension
+**Built-in providers get per-model switches, custom providers a single
+switch.** "Built-in" means pi's own providers plus anything an extension
 registered — both own their model lists, so `enabledModels` is the only way to
 hide one of their models. A models.json provider can simply have the model
 deleted, so it is switched as a whole.
 
-**Provider-level control is two buttons, not a tri-state switch.** A switch
-would have to answer "what happens when 12 of 40 are on"; `Enable all` /
-`Disable all` each have one meaning, the `12/40` readout carries the state, and
-a partial state produced by `/scoped-models` is displayed honestly instead of
-being forced into a binary control.
+**Provider-level control is two buttons above a list, and one switch without
+one.** With per-model rows underneath, a header switch would have to answer
+"what happens when 12 of 40 are on"; `Enable all` / `Disable all` each have one
+meaning, the `12/40` readout carries the state, the filter turns them into
+`Enable shown` / `Disable shown`, and a partial state produced by
+`/scoped-models` is displayed honestly instead of being forced into a binary
+control. A models.json provider has no rows, so there both buttons only ever
+sent the same provider-wide write and one switch says it with half the
+controls. That switch is on only when every model of the provider is on: a
+partial state then reads as off beside its `1/2 enabled` count and one click
+completes it. Reading it as "any enabled" instead would leave partial
+unreachable in both directions whenever the last-enabled-model guard blocks the
+way down.
 
 ## Consequences
 
