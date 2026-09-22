@@ -2006,13 +2006,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         setSavedOk(true);
         setTimeout(() => setSavedOk(false), 2000);
         // models.json just changed under the switches: providers may have been
-        // renamed, models added or deleted. Carry the entries of renamed
-        // providers over and re-read either way.
+        // renamed, models added, deleted or renamed. Re-verify the stored
+        // patterns against the new catalog and re-read.
         const renames = [...renamesRef.current].map(([from, to]) => ({ from, to }));
         savedProvidersRef.current = new Set(Object.keys(config.providers ?? {}));
         renamesRef.current.clear();
-        if (renames.length > 0) enabledModels.renameProviders(renames);
-        else enabledModels.refresh();
+        enabledModels.resync(renames);
       }
     } catch (e) {
       setSaveError(String(e));

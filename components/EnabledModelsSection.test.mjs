@@ -101,7 +101,7 @@ test("the sidebar badge only appears while the selector is narrowed", () => {
 });
 
 test("edits are serialized so two writes cannot race on the settings file", () => {
-  assert.match(source, /if \(pendingRef\.current\) return;/);
+  assert.match(source, /if \(pendingRef\.current\) \{\s*\n\s*queuedRef\.current = \{ key, body \};\s*\n\s*return;/);
   assert.match(source, /pendingRef\.current = key;/);
   assert.match(source, /const busy = pending !== null;/);
 });
@@ -155,10 +155,16 @@ test("a missing custom provider is not blamed on a sign-in", () => {
   assert.match(modelsConfigSource, /<EnabledModelsSection providerId=\{name\} controller=\{enabledModels\} custom \/>/);
 });
 
-test("saving models.json re-reads the switches and carries renames over", () => {
-  assert.match(modelsConfigSource, /if \(renames\.length > 0\) enabledModels\.renameProviders\(renames\);\s*\n\s*else enabledModels\.refresh\(\);/);
+test("saving models.json resyncs the switches with the pre-save intent", () => {
+  assert.match(modelsConfigSource, /enabledModels\.resync\(renames\)/);
   assert.match(modelsConfigSource, /savedProvidersRef\.current\.has\(original\)/);
-  assert.match(source, /const refresh = useCallback\(\(\) => setReloadKey/);
+  // Providers that were fully enabled stay fully enabled across the save.
+  assert.match(source, /provider\.enabledCount === provider\.models\.length\)\s*\n\s*\.map\(\(provider\) => provider\.id\)/);
+});
+
+test("a save landing mid-toggle is queued, not dropped", () => {
+  assert.match(source, /queuedRef\.current = \{ key, body \};/);
+  assert.match(source, /if \(queued\) mutateRef\.current\?\.\(queued\.key, queued\.body\);/);
 });
 
 test("provider rows carry the scope badge", () => {

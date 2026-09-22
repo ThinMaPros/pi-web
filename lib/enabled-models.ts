@@ -344,25 +344,62 @@ export interface ProviderRename {
 }
 
 /**
- * Follow a custom provider that was renamed in models.json.
+ * Point a renamed provider's entries at its new id.
  *
- * Its entries would otherwise point at an id that no longer exists: the
- * provider comes back with every model switched off and a dead pattern beside
- * it. Renaming is a pure prefix rewrite, so a `:thinkingLevel` suffix and the
- * entry order both survive.
+ * A pure prefix rewrite, so a `:thinkingLevel` suffix and the entry order both
+ * survive. The result is only the *intent*: the same glob can mean something
+ * else under the new id, so it must be resolved again and passed through
+ * `constrainProviderEntries()` before it is stored.
  */
-export function renameProviderEntries(
-  input: EnabledModelsInput,
+export function renameProviderPatterns(
+  patterns: string[] | undefined,
   renames: readonly ProviderRename[],
-): EnabledModelsEdit {
-  if (!input.patterns) return { ok: true, patterns: input.patterns, changed: false };
+): string[] | undefined {
+  if (!patterns) return patterns;
   const applicable = renames.filter((rename) => rename.from && rename.to && rename.from !== rename.to);
-  if (applicable.length === 0) return { ok: true, patterns: input.patterns, changed: false };
-
-  const patterns = input.patterns.map((pattern) => {
+  if (applicable.length === 0) return patterns;
+  return patterns.map((pattern) => {
     const rename = applicable.find((candidate) => pattern.startsWith(`${candidate.from}/`));
     return rename ? `${rename.to}${pattern.slice(rename.from.length)}` : pattern;
   });
+}
+
+/**
+ * Cut entries back to the provider their prefix names.
+ *
+ * pi matches a pattern against both `provider/modelId` **and** the bare
+ * `modelId`, so `stepfun/*` also matches another provider's model whose id
+ * happens to be `stepfun/Step-5-Preview`. A glob is verified against the
+ * catalog when it is written, but models.json can change under it: renaming a
+ * provider to `stepfun` made its glob reach into `commandcode`, which silently
+ * enabled three of its models.
+ *
+ * An entry that still matches nothing inside its own provider is left alone —
+ * it may be a bare model id that only looks like a prefix.
+ */
+export function constrainProviderEntries(input: EnabledModelsInput): EnabledModelsEdit {
+  const providers = new Set(providerOrder(input.availableRefs));
+  const next: Entry[] = [];
+  let cutBack = false;
+  for (const entry of toEntries(input.resolutions)) {
+    const slash = entry.pattern.indexOf("/");
+    const prefix = slash > 0 ? entry.pattern.slice(0, slash) : "";
+    const inside = providers.has(prefix)
+      ? entry.matched.filter((ref) => modelRefProvider(ref) === prefix)
+      : [];
+    if (inside.length === 0 || inside.length === entry.matched.length) {
+      next.push(entry);
+      continue;
+    }
+    cutBack = true;
+    for (const ref of inside) {
+      next.push({ pattern: formatEntry(ref, entry.pin), matched: [ref], ...(entry.pin ? { pin: entry.pin } : {}) });
+    }
+  }
+  // Repair only. Whether the setting can be dropped altogether is for the
+  // operation that actually edits the selection to decide.
+  if (!cutBack) return { ok: true, patterns: input.patterns, changed: false };
+  const patterns = serialize(next, input);
   return { ok: true, patterns, changed: !samePatterns(patterns, input.patterns) };
 }
 

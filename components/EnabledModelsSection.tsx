@@ -40,8 +40,8 @@ export interface EnabledModelsController {
   pruneStale: () => void;
   /** Re-read after models.json changed under the panel. */
   refresh: () => void;
-  /** Carry a custom provider's entries to the id it was just renamed to. */
-  renameProviders: (renames: { from: string; to: string }[]) => void;
+  /** Re-verify the stored patterns after models.json was saved. */
+  resync: (renames: { from: string; to: string }[]) => void;
 }
 
 type MutationBody =
@@ -49,7 +49,7 @@ type MutationBody =
   | { op: "provider"; provider: string; enabled: boolean }
   | { op: "clear" }
   | { op: "prune" }
-  | { op: "rename"; renames: { from: string; to: string }[] };
+  | { op: "resync"; renames: { from: string; to: string }[]; fullyEnabled: string[] };
 
 const FAILURE_KEYS: Record<string, string> = {
   "last-model": "models.enabledLastModel",
@@ -62,6 +62,8 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
   const [pending, setPending] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const pendingRef = useRef<string | null>(null);
+  const queuedRef = useRef<{ key: string; body: MutationBody } | null>(null);
+  const mutateRef = useRef<((key: string, body: MutationBody) => void) | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -87,7 +89,12 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
   }, [cwd, reloadKey]);
 
   const mutate = useCallback((key: string, body: MutationBody) => {
-    if (pendingRef.current) return;
+    // A save can land while a switch is still in flight; queue it rather than
+    // dropping it, or the panel keeps describing the previous models.json.
+    if (pendingRef.current) {
+      queuedRef.current = { key, body };
+      return;
+    }
     pendingRef.current = key;
     setPending(key);
     setFailure(null);
@@ -110,9 +117,14 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
       } finally {
         pendingRef.current = null;
         setPending(null);
+        const queued = queuedRef.current;
+        queuedRef.current = null;
+        if (queued) mutateRef.current?.(queued.key, queued.body);
       }
     })();
   }, [cwd]);
+
+  mutateRef.current = mutate;
 
   const setModels = useCallback((key: string, refs: string[], enabled: boolean) => {
     mutate(key, { op: "models", refs, enabled });
@@ -125,11 +137,15 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
   const clearScope = useCallback(() => mutate("clear", { op: "clear" }), [mutate]);
   const pruneStale = useCallback(() => mutate("prune", { op: "prune" }), [mutate]);
   const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
-  // Renaming writes and returns the fresh view, so it doubles as the reload
-  // models.json needs after a save; a no-op rename list still re-reads.
-  const renameProviders = useCallback((renames: { from: string; to: string }[]) => {
-    mutate("rename", { op: "rename", renames });
-  }, [mutate]);
+  // Resync writes and returns the fresh view, so it doubles as the reload
+  // models.json needs after a save. The providers that are fully enabled right
+  // now are the intent to preserve across whatever the save changed.
+  const resync = useCallback((renames: { from: string; to: string }[]) => {
+    const fullyEnabled = (view?.providers ?? [])
+      .filter((provider) => provider.models.length > 0 && provider.enabledCount === provider.models.length)
+      .map((provider) => provider.id);
+    mutate("resync", { op: "resync", renames, fullyEnabled });
+  }, [mutate, view]);
 
   return {
     view,
@@ -141,7 +157,7 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
     clearScope,
     pruneStale,
     refresh,
-    renameProviders,
+    resync,
   };
 }
 

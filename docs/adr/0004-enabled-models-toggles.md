@@ -70,11 +70,20 @@ when the patterns resolve to nothing, so "disable everything" silently means
   preserves them because an entry usually goes unmatched for a reversible
   reason; a provider that renamed its models is not reversible, so the panel
   offers this explicitly instead of making the user clear the whole scope.
-- `rename` follows a custom provider whose id changed in models.json, as a
-  prefix rewrite of its entries. The panel tracks renames of already-saved
-  providers and sends them right after the models.json write; otherwise the
-  provider would come back with every model off, next to a pattern pointing at
-  an id that no longer exists.
+- `resync` runs after a models.json save, because a pattern's meaning depends
+  on the catalog that just moved. It rewrites a renamed provider's prefix, cuts
+  back entries whose provider prefix no longer scopes them, and re-asserts the
+  providers the panel saw fully enabled before the save. pi matches patterns
+  against the bare `modelId` too, so `stepfun/*` also matches `commandcode`'s
+  model `stepfun/Step-5-Preview`: renaming a provider to `stepfun` turned its
+  glob into a cross-provider one, silently enabling three `commandcode` models,
+  and switching stepfun off then wrote them out. Renaming a *model* to an id
+  with a slash is the mirror image — `provider/*` stops covering it, so a fully
+  enabled provider quietly loses a model. A verified glob is only verified for
+  the catalog it was written against.
+- Repair is confined to `resync`. An ordinary toggle stays a minimal edit and
+  never rewrites an entry the user did not touch, even one that over-matches by
+  hand.
 - Entry order is preserved: it is pi's model cycling order and the fallback for
   the initial model of a new session.
 

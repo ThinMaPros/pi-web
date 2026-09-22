@@ -4,9 +4,11 @@ import { getAgentDir, SettingsManager, type ModelRuntime } from "@earendil-works
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   clearEnabledModels,
+  constrainProviderEntries,
   pruneStaleEnabledModels,
-  renameProviderEntries,
+  renameProviderPatterns,
   setModelsEnabled,
+  type EnabledModelsEdit,
   type ProviderRename,
 } from "@/lib/enabled-models";
 import {
@@ -18,6 +20,7 @@ import {
   writeEnabledModels,
   type EnabledModelsView,
 } from "@/lib/enabled-models-runtime";
+import type { EnabledModelsInput } from "@/lib/enabled-models";
 import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { invalidateModelsCache } from "@/lib/models-cache";
@@ -97,6 +100,7 @@ interface EnabledModelsRequest {
   provider?: unknown;
   refs?: unknown;
   renames?: unknown;
+  fullyEnabled?: unknown;
   enabled?: unknown;
 }
 
@@ -117,6 +121,49 @@ function stringArray(value: unknown): string[] | null {
   return value as string[];
 }
 
+/**
+ * Repair the stored patterns after models.json changed under the panel.
+ *
+ * A pattern's meaning depends on the catalog, and the catalog just moved: a
+ * provider rename can make its glob reach into another provider (pi matches
+ * patterns against the bare model id too, so `stepfun/*` also matches
+ * `commandcode`'s `stepfun/Step-5-Preview`), and renaming a model to an id with
+ * a slash drops it out of `provider/*` entirely. So re-resolve, cut entries
+ * back to the provider their prefix names, and restore the providers that were
+ * fully enabled before the save.
+ */
+async function resyncAfterModelsConfigSave(
+  context: RequestContext,
+  input: EnabledModelsInput,
+  renames: readonly ProviderRename[],
+  fullyEnabled: readonly string[],
+): Promise<EnabledModelsEdit> {
+  const original = input.patterns;
+  const renamed = renameProviderPatterns(original, renames);
+  let current = renamed === original
+    ? input
+    : await buildEnabledModelsInput(renamed, context.models, { withProviderGlobs: true });
+
+  const constrained = constrainProviderEntries(current);
+  if (constrained.ok && constrained.changed) {
+    current = await buildEnabledModelsInput(constrained.patterns, context.models, { withProviderGlobs: true });
+  }
+
+  // A provider that was fully enabled before the save stays fully enabled, even
+  // when a model of it was renamed out of the glob that used to cover it.
+  const refs = fullyEnabled
+    .map((id) => renames.find((rename) => rename.from === id)?.to ?? id)
+    .flatMap((id) => context.models.filter((model) => model.provider === id).map(modelRef));
+  const edit = setModelsEnabled(current, refs, true);
+  if (!edit.ok) return edit;
+  return { ok: true, patterns: edit.patterns, changed: !samePatternList(edit.patterns, original) };
+}
+
+function samePatternList(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((pattern, index) => pattern === b[index]);
+}
+
 export async function PUT(req: Request) {
   let body: EnabledModelsRequest;
   try {
@@ -126,7 +173,7 @@ export async function PUT(req: Request) {
   }
 
   const op = body.op;
-  if (op !== "models" && op !== "provider" && op !== "clear" && op !== "prune" && op !== "rename") {
+  if (op !== "models" && op !== "provider" && op !== "clear" && op !== "prune" && op !== "resync") {
     return Response.json({ error: "Invalid op" }, { status: 400 });
   }
   if (op === "models" || op === "provider") {
@@ -157,10 +204,13 @@ export async function PUT(req: Request) {
       edit = clearEnabledModels(input);
     } else if (op === "prune") {
       edit = pruneStaleEnabledModels(input);
-    } else if (op === "rename") {
+    } else if (op === "resync") {
       const renames = providerRenames(body.renames);
-      if (!renames) return Response.json({ error: "renames must be {from,to} pairs" }, { status: 400 });
-      edit = renameProviderEntries(input, renames);
+      const fullyEnabled = stringArray(body.fullyEnabled ?? []);
+      if (!renames || !fullyEnabled) {
+        return Response.json({ error: "Invalid resync payload" }, { status: 400 });
+      }
+      edit = await resyncAfterModelsConfigSave(context, input, renames, fullyEnabled);
     } else {
       let refs: string[];
       if (op === "provider") {
