@@ -343,6 +343,39 @@ export interface ProviderRename {
   to: string;
 }
 
+/** Suffixes `formatEntry()` may have appended, so a rename can carry them over. */
+const THINKING_LEVEL_SUFFIXES = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/**
+ * Point renamed models' entries at their new reference.
+ *
+ * A model renamed in the panel is a known fact, not the kind of mismatch worth
+ * preserving: leaving `stepfun/ddd` behind after it became `stepfun/ddd1` loses
+ * the selection, and when it was the only entry the whole scope resolves to
+ * nothing — which pi reads as "no scope", silently enabling every model.
+ *
+ * Applied before the provider rewrite, so `from` is the reference as the
+ * settings file still spells it and `to` is where it ends up.
+ */
+export function renameModelPatterns(
+  patterns: string[] | undefined,
+  renames: readonly ProviderRename[],
+): string[] | undefined {
+  if (!patterns) return patterns;
+  const applicable = renames.filter((rename) => rename.from && rename.to && rename.from !== rename.to);
+  if (applicable.length === 0) return patterns;
+  return patterns.map((pattern) => {
+    for (const { from, to } of applicable) {
+      if (pattern === from) return to;
+      // Model ids may contain colons, so only a known level is a pin suffix.
+      if (!pattern.startsWith(`${from}:`)) continue;
+      const suffix = pattern.slice(from.length + 1);
+      if (THINKING_LEVEL_SUFFIXES.has(suffix)) return `${to}:${suffix}`;
+    }
+    return pattern;
+  });
+}
+
 /**
  * Point a renamed provider's entries at its new id.
  *

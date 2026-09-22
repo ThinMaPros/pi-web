@@ -41,7 +41,10 @@ export interface EnabledModelsController {
   /** Re-read after models.json changed under the panel. */
   refresh: () => void;
   /** Re-verify the stored patterns after models.json was saved. */
-  resync: (renames: { from: string; to: string }[]) => void;
+  resync: (
+    renames: { from: string; to: string }[],
+    modelRenames: { from: string; to: string }[],
+  ) => void;
 }
 
 type MutationBody =
@@ -49,7 +52,12 @@ type MutationBody =
   | { op: "provider"; provider: string; enabled: boolean }
   | { op: "clear" }
   | { op: "prune" }
-  | { op: "resync"; renames: { from: string; to: string }[]; fullyEnabled: string[] };
+  | {
+      op: "resync";
+      renames: { from: string; to: string }[];
+      modelRenames: { from: string; to: string }[];
+      fullyEnabled: string[];
+    };
 
 const FAILURE_KEYS: Record<string, string> = {
   "last-model": "models.enabledLastModel",
@@ -140,11 +148,14 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
   // Resync writes and returns the fresh view, so it doubles as the reload
   // models.json needs after a save. The providers that are fully enabled right
   // now are the intent to preserve across whatever the save changed.
-  const resync = useCallback((renames: { from: string; to: string }[]) => {
+  const resync = useCallback((
+    renames: { from: string; to: string }[],
+    modelRenames: { from: string; to: string }[],
+  ) => {
     const fullyEnabled = (view?.providers ?? [])
       .filter((provider) => provider.models.length > 0 && provider.enabledCount === provider.models.length)
       .map((provider) => provider.id);
-    mutate("resync", { op: "resync", renames, fullyEnabled });
+    mutate("resync", { op: "resync", renames, modelRenames, fullyEnabled });
   }, [mutate, view]);
 
   return {

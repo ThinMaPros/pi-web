@@ -12,8 +12,11 @@ import {
   hasModelCostDraftValue,
   modelCostToDraft,
   parseCompleteModelCost,
+  savedModelIds,
   serializeHeaderRows,
   setCompatBool,
+  trackAddedModels,
+  collectModelRenames,
   updateHeaderRow,
   type HeaderRow,
   type ModelCostDraft,
@@ -1858,6 +1861,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   /** Provider ids as models.json has them on disk, and where renames moved them. */
   const savedProvidersRef = useRef<Set<string>>(new Set());
   const renamesRef = useRef<Map<string, string>>(new Map());
+  /**
+   * Per provider, the model id saved at each slot, or null for a model added
+   * since. Mirroring the draft's array moves is what lets a save tell a rename
+   * from an unrelated edit without guessing.
+   */
+  const savedModelIdsRef = useRef<Map<string, (string | null)[]>>(new Map());
 
   const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -1876,6 +1885,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         const normalized = d.providers ? d : { ...d, providers: {} };
         setConfig(normalized);
         savedProvidersRef.current = new Set(Object.keys(normalized.providers ?? {}));
+        savedModelIdsRef.current = savedModelIds(normalized);
         const keys = Object.keys(normalized.providers ?? {});
         setSelection((current) => current && customSelectionExists(normalized, current)
           ? current
@@ -1916,6 +1926,11 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     }
     if (original === newName) renames.delete(original);
     else if (savedProvidersRef.current.has(original)) renames.set(original, newName);
+    const slots = savedModelIdsRef.current.get(oldName);
+    if (slots) {
+      savedModelIdsRef.current.delete(oldName);
+      savedModelIdsRef.current.set(newName, slots);
+    }
     setConfig((prev) => {
       const entries = Object.entries(prev.providers ?? {});
       const idx = entries.findIndex(([k]) => k === oldName);
@@ -1932,6 +1947,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   }, []);
 
   const deleteProvider = useCallback((name: string) => {
+    savedModelIdsRef.current.delete(name);
     setConfig((prev) => {
       const providers = { ...(prev.providers ?? {}) };
       delete providers[name];
@@ -1945,6 +1961,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   }, []);
 
   const addModel = useCallback((providerName: string) => {
+    trackAddedModels(savedModelIdsRef.current, providerName, 1);
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? []), { id: "" }];
@@ -1959,6 +1976,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
 
   const addDiscoveredModels = useCallback((providerName: string, discovered: DiscoveredModel[]) => {
     setConfig((prev) => {
+      const known = new Set((prev.providers?.[providerName]?.models ?? []).map((model) => model.id));
+      trackAddedModels(
+        savedModelIdsRef.current,
+        providerName,
+        discovered.filter((model) => !known.has(model.id)).length,
+      );
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
       const existingIds = new Set(models.map((model) => model.id));
@@ -1981,6 +2004,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   }, []);
 
   const removeModel = useCallback((providerName: string, index: number) => {
+    savedModelIdsRef.current.get(providerName)?.splice(index, 1);
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
@@ -2009,9 +2033,11 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         // renamed, models added, deleted or renamed. Re-verify the stored
         // patterns against the new catalog and re-read.
         const renames = [...renamesRef.current].map(([from, to]) => ({ from, to }));
+        const modelRenames = collectModelRenames(config, savedModelIdsRef.current, renamesRef.current);
         savedProvidersRef.current = new Set(Object.keys(config.providers ?? {}));
+        savedModelIdsRef.current = savedModelIds(config);
         renamesRef.current.clear();
-        enabledModels.resync(renames);
+        enabledModels.resync(renames, modelRenames);
       }
     } catch (e) {
       setSaveError(String(e));

@@ -156,7 +156,8 @@ test("a missing custom provider is not blamed on a sign-in", () => {
 });
 
 test("saving models.json resyncs the switches with the pre-save intent", () => {
-  assert.match(modelsConfigSource, /enabledModels\.resync\(renames\)/);
+  assert.match(modelsConfigSource, /enabledModels\.resync\(renames, modelRenames\)/);
+  assert.match(modelsConfigSource, /collectModelRenames\(config, savedModelIdsRef\.current, renamesRef\.current\)/);
   assert.match(modelsConfigSource, /savedProvidersRef\.current\.has\(original\)/);
   // Providers that were fully enabled stay fully enabled across the save.
   assert.match(source, /provider\.enabledCount === provider\.models\.length\)\s*\n\s*\.map\(\(provider\) => provider\.id\)/);
@@ -175,4 +176,13 @@ test("provider rows carry the scope badge", () => {
   assert.equal(sidebar.match(/\{scopeBadge\(/g)?.length, 3);
   assert.match(cssSource, /\.models-sidebar-badge \{/);
   assert.match(cssSource, /\.enabled-models-row \+ \.enabled-models-row \{/);
+});
+
+test("the saved-model slots mirror every move the draft makes", () => {
+  assert.match(modelsConfigSource, /savedModelIdsRef\.current = savedModelIds\(normalized\)/);
+  assert.match(modelsConfigSource, /savedModelIdsRef\.current = savedModelIds\(config\)/);
+  assert.match(modelsConfigSource, /trackAddedModels\(savedModelIdsRef\.current, providerName, 1\)/);
+  assert.match(modelsConfigSource, /savedModelIdsRef\.current\.get\(providerName\)\?\.splice\(index, 1\)/);
+  assert.match(modelsConfigSource, /savedModelIdsRef\.current\.delete\(name\)/);
+  assert.match(modelsConfigSource, /savedModelIdsRef\.current\.set\(newName, slots\)/);
 });

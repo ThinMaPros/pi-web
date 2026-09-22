@@ -71,7 +71,7 @@ when the patterns resolve to nothing, so "disable everything" silently means
   reason; a provider that renamed its models is not reversible, so the panel
   offers this explicitly instead of making the user clear the whole scope.
 - `resync` runs after a models.json save, because a pattern's meaning depends
-  on the catalog that just moved. It rewrites a renamed provider's prefix, cuts
+  on the catalog that just moved. It rewrites renamed models and providers, cuts
   back entries whose provider prefix no longer scopes them, and re-asserts the
   providers the panel saw fully enabled before the save. pi matches patterns
   against the bare `modelId` too, so `stepfun/*` also matches `commandcode`'s
@@ -81,6 +81,13 @@ when the patterns resolve to nothing, so "disable everything" silently means
   with a slash is the mirror image — `provider/*` stops covering it, so a fully
   enabled provider quietly loses a model. A verified glob is only verified for
   the catalog it was written against.
+- A rename made in the panel is a known move, so its entry travels instead of
+  being preserved as a mismatch: renaming the one enabled model used to leave
+  a dead entry, and with the list then resolving to nothing, pi enabled every
+  model. Model references are rewritten before provider ids, since they still
+  spell the provider the settings file knows. The panel mirrors the draft's
+  array moves to tell a rename from an add or a delete rather than guessing
+  from a diff.
 - Repair is confined to `resync`. An ordinary toggle stays a minimal edit and
   never rewrites an entry the user did not touch, even one that over-matches by
   hand.

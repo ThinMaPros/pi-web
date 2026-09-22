@@ -6,6 +6,7 @@ import {
   clearEnabledModels,
   constrainProviderEntries,
   pruneStaleEnabledModels,
+  renameModelPatterns,
   renameProviderPatterns,
   setModelsEnabled,
   type EnabledModelsEdit,
@@ -100,11 +101,12 @@ interface EnabledModelsRequest {
   provider?: unknown;
   refs?: unknown;
   renames?: unknown;
+  modelRenames?: unknown;
   fullyEnabled?: unknown;
   enabled?: unknown;
 }
 
-function providerRenames(value: unknown): ProviderRename[] | null {
+function renamePairs(value: unknown): ProviderRename[] | null {
   if (!Array.isArray(value)) return null;
   const renames: ProviderRename[] = [];
   for (const entry of value) {
@@ -135,11 +137,17 @@ function stringArray(value: unknown): string[] | null {
 async function resyncAfterModelsConfigSave(
   context: RequestContext,
   input: EnabledModelsInput,
-  renames: readonly ProviderRename[],
-  fullyEnabled: readonly string[],
+  options: {
+    renames: readonly ProviderRename[];
+    modelRenames: readonly ProviderRename[];
+    fullyEnabled: readonly string[];
+  },
 ): Promise<EnabledModelsEdit> {
+  const { renames, modelRenames, fullyEnabled } = options;
   const original = input.patterns;
-  const renamed = renameProviderPatterns(original, renames);
+  // Model references first: they still carry the old provider id, which the
+  // provider rewrite below would otherwise have replaced already.
+  const renamed = renameProviderPatterns(renameModelPatterns(original, modelRenames), renames);
   let current = renamed === original
     ? input
     : await buildEnabledModelsInput(renamed, context.models, { withProviderGlobs: true });
@@ -205,12 +213,13 @@ export async function PUT(req: Request) {
     } else if (op === "prune") {
       edit = pruneStaleEnabledModels(input);
     } else if (op === "resync") {
-      const renames = providerRenames(body.renames);
+      const renames = renamePairs(body.renames);
+      const modelRenames = renamePairs(body.modelRenames ?? []);
       const fullyEnabled = stringArray(body.fullyEnabled ?? []);
-      if (!renames || !fullyEnabled) {
+      if (!renames || !modelRenames || !fullyEnabled) {
         return Response.json({ error: "Invalid resync payload" }, { status: 400 });
       }
-      edit = await resyncAfterModelsConfigSave(context, input, renames, fullyEnabled);
+      edit = await resyncAfterModelsConfigSave(context, input, { renames, modelRenames, fullyEnabled });
     } else {
       let refs: string[];
       if (op === "provider") {
