@@ -2,7 +2,7 @@ import {
   SessionManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, type Dirent, fstatSync, openSync, readSync } from "fs";
+import { closeSync, type Dirent, fstatSync, openSync, readSync, statSync } from "fs";
 import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
@@ -374,6 +374,87 @@ function getPathToIdCache(): Map<string, string> {
   return globalThis.__piPathToSessionIdCache;
 }
 
+// ---------------------------------------------------------------------------
+// Read-only SessionManager cache.
+//
+// Opening a large session (SessionManager.open -> full JSONL parse + index
+// build) costs 150-600ms. Detail/context/pagination routes re-open the same
+// file on every request whenever no live runtime wrapper exists, so a small
+// fingerprint-validated cache turns repeat opens into ~1ms map hits.
+//
+// Safety: cached managers are READ-ONLY views. Any write path must go through
+// a live wrapper or SessionManager.open directly — call openSessionManager
+// with { mutable: true } (bypasses the cache) for those. The fingerprint
+// (size + mtimeMs) invalidates on external appends (TUI writes), and
+// invalidateSessionManagerCache(filePath) is called on delete/rename.
+// ---------------------------------------------------------------------------
+
+declare global {
+  var __piSmCache: Map<string, { sm: unknown; fingerprint: string }> | undefined;
+}
+
+const SM_CACHE_MAX = 12;
+
+function getSmCache(): Map<string, { sm: unknown; fingerprint: string }> {
+  if (!globalThis.__piSmCache) globalThis.__piSmCache = new Map();
+  return globalThis.__piSmCache;
+}
+
+function sessionFileFingerprint(filePath: string): string | null {
+  try {
+    const stats = statSync(filePath);
+    return `${stats.size}:${stats.mtimeMs}`;
+  } catch {
+    return null;
+  }
+}
+
+export function invalidateSessionManagerCache(filePath?: string): void {
+  const cache = getSmCache();
+  if (filePath === undefined) {
+    cache.clear();
+    return;
+  }
+  cache.delete(sessionPathKey(filePath));
+}
+
+/**
+ * Open a session file, reusing a cached read-only SessionManager when the
+ * on-disk fingerprint is unchanged. Pass { mutable: true } when the caller
+ * intends to append/branch/rewrite — that path always opens fresh.
+ */
+export function openSessionManager(
+  filePath: string,
+  options: { mutable?: boolean } = {},
+): SessionManager {
+  if (options.mutable) return SessionManager.open(filePath, undefined);
+
+  const cache = getSmCache();
+  const pathKey = sessionPathKey(filePath);
+  const fingerprint = sessionFileFingerprint(filePath);
+  if (fingerprint === null) {
+    cache.delete(pathKey);
+    return SessionManager.open(filePath, undefined);
+  }
+
+  const cached = cache.get(pathKey);
+  if (cached && cached.fingerprint === fingerprint) {
+    // LRU touch.
+    cache.delete(pathKey);
+    cache.set(pathKey, cached);
+    return cached.sm as SessionManager;
+  }
+
+  const sm = SessionManager.open(filePath, undefined);
+  cache.set(pathKey, { sm, fingerprint });
+  while (cache.size > SM_CACHE_MAX) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+  return sm;
+}
+
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
   const cached = getPathCache().get(sessionId);
   if (cached) return cached;
@@ -449,7 +530,7 @@ export function readSessionHeader(filePath: string): SessionHeader | null {
 }
 
 export function getSessionEntries(filePath: string): SessionEntry[] {
-  const entries = SessionManager.open(filePath).getEntries();
+  const entries = openSessionManager(filePath).getEntries();
   return entries as unknown as SessionEntry[];
 }
 

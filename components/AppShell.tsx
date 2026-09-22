@@ -581,44 +581,51 @@ export function AppShell() {
     const token = ++workspaceRestoreTokenRef.current;
     const lastOpenSessionId = getLastOpenSession(projectKey);
     if (!lastOpenSessionId) return;
+    const adopt = (d: { sessions: SessionInfo[] } | null) => {
+      if (token !== workspaceRestoreTokenRef.current) return; // stale switch
+      const s = d?.sessions.find((x) => x.id === lastOpenSessionId);
+      if (!s) {
+        // The list loaded but the remembered session is gone — forget it.
+        // When the list itself failed (d === null) keep the memory so a
+        // later switch retries the restore.
+        if (d) clearLastOpen(projectKey);
+        return;
+      }
+      if (workspaceKeyOf(s) !== projectKey) {
+        // Defensive: the remembered session drifted out of this workspace.
+        clearLastOpen(projectKey);
+        return;
+      }
+      // Keep the temporary composer's draft in its cwd, even when the
+      // remembered session belongs to another worktree of this project.
+      const activeDraftKey = activeNewSessionDraftKeyRef.current;
+      if (activeDraftKey) {
+        rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(cwd));
+      }
+      activeNewSessionDraftKeyRef.current = null;
+      // Selecting the session must remount the chat with the session
+      // present: useAgentSession loads content in a mount-only effect, so
+      // the null-session welcome mount from the switch would never load
+      // the restored session's messages.
+      setSelectedSession(s);
+      setSessionKey((k) => k + 1);
+      if (new URLSearchParams(window.location.search).get("session") !== s.id) {
+        router.replace(`?session=${encodeURIComponent(s.id)}`, { scroll: false });
+      }
+    };
+    // Fast path: the sidebar already delivered the catalogue — restore
+    // without waiting on a fresh /api/sessions round trip.
+    if (sessionCatalog.length > 0) {
+      adopt({ sessions: sessionCatalog });
+      return;
+    }
     void fetch("/api/sessions")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
-      .then((d) => {
-        if (token !== workspaceRestoreTokenRef.current) return; // stale switch
-        const s = d?.sessions.find((x) => x.id === lastOpenSessionId);
-        if (!s) {
-          // The list loaded but the remembered session is gone — forget it.
-          // When the list itself failed (d === null) keep the memory so a
-          // later switch retries the restore.
-          if (d) clearLastOpen(projectKey);
-          return;
-        }
-        if (workspaceKeyOf(s) !== projectKey) {
-          // Defensive: the remembered session drifted out of this workspace.
-          clearLastOpen(projectKey);
-          return;
-        }
-        // Keep the temporary composer's draft in its cwd, even when the
-        // remembered session belongs to another worktree of this project.
-        const activeDraftKey = activeNewSessionDraftKeyRef.current;
-        if (activeDraftKey) {
-          rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(cwd));
-        }
-        activeNewSessionDraftKeyRef.current = null;
-        // Selecting the session must remount the chat with the session
-        // present: useAgentSession loads content in a mount-only effect, so
-        // the null-session welcome mount from the switch would never load
-        // the restored session's messages.
-        setSelectedSession(s);
-        setSessionKey((k) => k + 1);
-        if (new URLSearchParams(window.location.search).get("session") !== s.id) {
-          router.replace(`?session=${encodeURIComponent(s.id)}`, { scroll: false });
-        }
-      })
+      .then(adopt)
       .catch(() => {
         // Network hiccup: keep the remembered session for a later retry.
       });
-  }, [router]);
+  }, [router, sessionCatalog]);
 
   const handleCwdChange = useCallback((
     cwd: string | null,
@@ -794,6 +801,13 @@ export function AppShell() {
   }, []);
 
   const handleOpenSession = useCallback(async (sessionId: string) => {
+    // Prefer the catalogue the sidebar already delivered: selecting from it
+    // avoids a full detail round trip just to obtain the SessionInfo.
+    const catalogued = sessionCatalog.find((s) => s.id === sessionId);
+    if (catalogued && !catalogued.transient) {
+      handleSelectSession(catalogued);
+      return;
+    }
     try {
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { cache: "no-store" });
       const data = await response.json() as { info?: SessionInfo; error?: string };
@@ -802,7 +816,7 @@ export function AppShell() {
     } catch (error) {
       console.error("[pi-web] failed to open session:", error instanceof Error ? error.message : error);
     }
-  }, [handleSelectSession]);
+  }, [handleSelectSession, sessionCatalog]);
 
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {

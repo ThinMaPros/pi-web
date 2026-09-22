@@ -11,12 +11,15 @@ import {
   getRpcSessionInfos,
   getRunningRpcSessionIds,
 } from "@/lib/rpc-manager";
+import { startServerPerf } from "@/lib/perf";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  const perf = startServerPerf("GET /api/sessions");
   try {
     const force = new URL(req.url).searchParams.get("force") === "1";
+    perf?.span("start");
     const persistedSessionsPromise = listAllSessions({ force });
     // Capture before awaiting: mutations during the scan still require a later refresh.
     const sessionListVersion = getSessionListVersion();
@@ -24,8 +27,18 @@ export async function GET(req: Request) {
       persistedSessionsPromise,
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
+    perf?.span("scan+projects");
     const sessions = mergeSessionLists(persistedSessions, runtimeSessions);
-    return jsonResponse(
+    return perf?.attach(jsonResponse(
+      req,
+      {
+        sessions,
+        sessionListVersion,
+        runningSessionIds: getRunningRpcSessionIds(),
+        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    )) ?? jsonResponse(
       req,
       {
         sessions,
