@@ -35,6 +35,7 @@ import {
 import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
+import { mergeCatalogRow } from "./session-catalog-helpers";
 import { rekeyDraft } from "@/lib/draft-store";
 import {
   clearLastOpen,
@@ -129,7 +130,7 @@ export function AppShell() {
     setSelectedSession((current) => {
       if (!current) return current;
       const refreshed = sessions.find((session) => session.id === current.id);
-      return refreshed ? { ...current, ...refreshed } : current;
+      return refreshed ? mergeCatalogRow(current, refreshed) : current;
     });
   }, []);
   const sessionsWithSelection = useMemo(() => {

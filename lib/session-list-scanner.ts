@@ -1,6 +1,7 @@
 // Cache session-list metadata without building the SDK's unused allMessagesText.
-// Normal listings rescan only new/changed files; summary listings inspect only
-// their headers and stats, then let a later normal listing hydrate exact details.
+// Normal listings rescan only new/changed files; summary listings reuse whatever
+// the index already holds and fall back to header/stat metadata for the files
+// that changed, which a later normal listing hydrates.
 // ponytail: size/mtime fingerprints miss same-size edits with restored mtime;
 // use content hashes if detecting those edits becomes necessary.
 import { closeSync, createReadStream, existsSync, openSync, readFileSync, readSync } from "node:fs";
@@ -80,16 +81,6 @@ function readSessionHeaderSummary(filePath: string): RawEntry | null {
 	} finally {
 		closeSync(fd);
 	}
-}
-
-function summaryFromCachedInfo(info: ScannedSessionInfo): ScannedSessionInfo {
-	return {
-		...info,
-		name: undefined,
-		messageCount: 0,
-		firstMessage: "",
-		detailsPending: true,
-	};
 }
 
 function hasMatchingFingerprint(
@@ -413,9 +404,11 @@ export async function listSessionsIncremental(
 		mtimes[resultIndex] = fp.mtimeMs;
 		const cached = index.get(filePath);
 		if (hasMatchingFingerprint(cached, fp)) {
-			results[resultIndex] = deferDetails
-				? summaryFromCachedInfo(cached.info)
-				: cached.info;
+			// Complete details are already in memory and the index is persisted
+			// across restarts, so on the common warm path every unchanged file
+			// can paint its real count and first message immediately. Blanking
+			// them would cost a request to get back what we are already holding.
+			results[resultIndex] = cached.info;
 			continue;
 		}
 		if (deferDetails) {
