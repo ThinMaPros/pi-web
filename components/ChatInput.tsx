@@ -22,7 +22,7 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
-import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
+import { getMarkdownListContinuation, type TextareaEdit } from "@/lib/markdown-list-continuation";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
@@ -915,25 +915,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [resizeTextarea]);
 
   useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    // Shift+Enter on desktop, Enter on mobile keyboards: every newline the
-    // textarea inserts arrives here, while IME confirmations and sends do not.
-    const continueList = (event: InputEvent) => {
-      if (event.inputType !== "insertLineBreak" || event.isComposing) return;
-      const edit = getMarkdownListContinuation(ta.value, ta.selectionStart, ta.selectionEnd);
-      if (!edit) return;
-      event.preventDefault();
-      ta.setSelectionRange(edit.start, edit.end);
-      // insertText keeps the edit on the native undo stack and fires the input
-      // event that updates the controlled value.
-      document.execCommand(edit.text ? "insertText" : "delete", false, edit.text);
-    };
-    ta.addEventListener("beforeinput", continueList);
-    return () => ta.removeEventListener("beforeinput", continueList);
-  }, []);
-
-  useEffect(() => {
     return () => {
       attachedImagesRef.current.forEach(revokeImagePreview);
     };
@@ -1022,6 +1003,49 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const pos = cursor ?? text.length;
     setAtQuery(extractAtQuery(text.slice(0, pos)));
   }, [cwd]);
+
+  // Replays a composer edit through React state. Used only when the native
+  // editing command did not apply, so a line break never becomes a dead key.
+  const applyComposerEdit = useCallback((ta: HTMLTextAreaElement, edit: TextareaEdit) => {
+    const nextValue = ta.value.slice(0, edit.start) + edit.text + ta.value.slice(edit.end);
+    const caret = edit.start + edit.text.length;
+    valueRef.current = nextValue;
+    setValue(nextValue);
+    setHistoryMenuOpen(false);
+    updateAtQuery(nextValue, caret);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(caret, caret);
+    });
+  }, [updateAtQuery]);
+
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    // Shift+Enter on desktop, Enter on mobile keyboards: every newline the
+    // textarea inserts arrives here, while IME confirmations and sends do not.
+    const continueList = (event: InputEvent) => {
+      if (event.inputType !== "insertLineBreak" || event.isComposing) return;
+      const edit = getMarkdownListContinuation(ta.value, ta.selectionStart, ta.selectionEnd);
+      if (!edit) return;
+      event.preventDefault();
+      ta.setSelectionRange(edit.start, edit.end);
+      // insertText keeps the edit on the native undo stack and fires the input
+      // event that updates the controlled value. execCommand is deprecated and
+      // text controls are not a guaranteed target for it, so the result is
+      // verified: an edit that did not land is replayed through React instead
+      // of leaving the prevented line break with nothing in its place.
+      const before = ta.value;
+      try {
+        document.execCommand(edit.text ? "insertText" : "delete", false, edit.text);
+      } catch {
+        // Unsupported command; the state update below still applies the edit.
+      }
+      if (ta.value === before) applyComposerEdit(ta, edit);
+    };
+    ta.addEventListener("beforeinput", continueList);
+    return () => ta.removeEventListener("beforeinput", continueList);
+  }, [applyComposerEdit]);
 
   const atQueryText = atQuery?.query ?? null;
   const atLocalMatches: FileIndexEntry[] = React.useMemo(() => (

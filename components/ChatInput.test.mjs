@@ -14,6 +14,7 @@ const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, replaceLinksWithMarkdown, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
+const { getMarkdownListContinuation } = await jiti.import("@/lib/markdown-list-continuation.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 test("preserves pasted HTML links as Markdown without changing plain text layout", () => {
@@ -96,6 +97,74 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
       ...keys,
     });
     assert.equal(action, expected, name);
+  }
+});
+
+test("composer line breaks continue lists and replay the edit when the native command does not apply", () => {
+  const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findHandler(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "continueList") {
+      return node.initializer;
+    }
+    return ts.forEachChild(node, findHandler);
+  }
+  // Execute the composer's actual beforeinput listener without mounting the UI.
+  const script = new Script(ts.transpileModule(findHandler(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+
+  // `applies` models a browser that routes the editing command to the textarea;
+  // `throws` models one that rejects it outright.
+  function lineBreak(value, caret, { inputType = "insertLineBreak", isComposing = false, applies = true, throws = false } = {}) {
+    const ta = {
+      value,
+      selectionStart: caret,
+      selectionEnd: caret,
+      setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; },
+    };
+    const result = { prevented: false, command: null, replayed: null };
+    const handler = script.runInNewContext({
+      ta,
+      getMarkdownListContinuation,
+      document: {
+        execCommand(command, _showUi, text) {
+          result.command = command;
+          if (throws) throw new Error("unsupported command");
+          if (applies) ta.value = ta.value.slice(0, ta.selectionStart) + text + ta.value.slice(ta.selectionEnd);
+          return applies;
+        },
+      },
+      applyComposerEdit(target, edit) {
+        result.replayed = edit;
+        ta.value = target.value.slice(0, edit.start) + edit.text + target.value.slice(edit.end);
+      },
+    });
+    handler({ inputType, isComposing, preventDefault() { result.prevented = true; } });
+    return { ...result, value: ta.value };
+  }
+
+  // The native line break is left alone unless the caret sits in a list item.
+  assert.deepEqual(lineBreak("hello", 5), { prevented: false, command: null, replayed: null, value: "hello" });
+  assert.deepEqual(lineBreak("1. one", 6, { inputType: "insertText" }), { prevented: false, command: null, replayed: null, value: "1. one" });
+  assert.deepEqual(lineBreak("1. one", 6, { isComposing: true }), { prevented: false, command: null, replayed: null, value: "1. one" });
+
+  // A continued item is inserted, an emptied one is deleted.
+  assert.deepEqual(lineBreak("1. one", 6), { prevented: true, command: "insertText", replayed: null, value: "1. one\n2. " });
+  assert.deepEqual(lineBreak("- a\n- ", 6), { prevented: true, command: "delete", replayed: null, value: "- a\n" });
+
+  // A command that reports failure, silently does nothing, or throws must not
+  // swallow the key: the same edit is replayed through React state instead.
+  for (const options of [{ applies: false }, { throws: true }]) {
+    assert.deepEqual(
+      lineBreak("1. one", 6, options),
+      { prevented: true, command: "insertText", replayed: { start: 6, end: 6, text: "\n2. " }, value: "1. one\n2. " },
+      JSON.stringify(options),
+    );
+    assert.deepEqual(
+      lineBreak("- a\n- ", 6, options),
+      { prevented: true, command: "delete", replayed: { start: 4, end: 6, text: "" }, value: "- a\n" },
+      JSON.stringify(options),
+    );
   }
 });
 
