@@ -13,7 +13,7 @@ import { sessionPathKey } from "./session-path";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
-import { listSessionsIncremental } from "./session-list-scanner";
+import { listSessionsIncremental, type ScannedSessionInfo } from "./session-list-scanner";
 
 export { getAgentDir };
 
@@ -183,49 +183,95 @@ export function mergeSessionLists(
   return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
-async function loadAllSessions(): Promise<SessionInfo[]> {
-  const scanned = await listSessionsIncremental();
-  const pathToId = new Map<string, string>();
-  for (const s of scanned) pathToId.set(sessionPathKey(s.path), s.id);
+type ScannedSubagent = NonNullable<ReturnType<typeof readSubagentRun>>;
 
-  const sessions = scanned.map((s) => {
-    cacheSessionPath(s.id, s.path);
-    const originSessionId = s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined;
-    let subagent = null;
-    if (s.parentSessionPath) {
-      try {
-        subagent = readSubagentRun(readSessionRelationEntries(s.path), s.id, s.path);
-      } catch { /* malformed or concurrently removed session */ }
-    }
-    return {
-      path: s.path,
-      id: s.id,
-      cwd: s.cwd,
-      name: s.name,
-      created: s.created.toISOString(),
-      modified: s.modified.toISOString(),
-      messageCount: s.messageCount,
-      firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: originSessionId,
-      ...(subagent
-        ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
-        : s.parentSessionPath
-          ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
-          : {}),
-      transient: false,
-    };
-  });
-  return attachSessionProjectInfo(sessions);
+function resolveScannedSessionRelation(
+  scanned: ScannedSessionInfo,
+  pathToId: Map<string, string>,
+): { originSessionId?: string; subagent: ScannedSubagent | null } {
+  const originSessionId = scanned.parentSessionPath
+    ? pathToId.get(sessionPathKey(scanned.parentSessionPath))
+    : undefined;
+  if (!scanned.parentSessionPath) return { originSessionId, subagent: null };
+
+  try {
+    const subagent = readSubagentRun(readSessionRelationEntries(scanned.path), scanned.id, scanned.path);
+    return { originSessionId, subagent };
+  } catch {
+    // Malformed or concurrently removed session.
+    return { originSessionId, subagent: null };
+  }
 }
 
-export async function listAllSessions(options: { force?: boolean } = {}): Promise<SessionInfo[]> {
+function mapScannedSession(
+  scanned: ScannedSessionInfo,
+  pathToId: Map<string, string>,
+): SessionInfo {
+  cacheSessionPath(scanned.id, scanned.path);
+  const { originSessionId, subagent } = resolveScannedSessionRelation(scanned, pathToId);
+  const detailsPending = scanned.detailsPending === true;
+  return {
+    path: scanned.path,
+    id: scanned.id,
+    cwd: scanned.cwd,
+    name: scanned.name,
+    created: scanned.created.toISOString(),
+    modified: scanned.modified.toISOString(),
+    messageCount: scanned.messageCount,
+    // A pending row has no first message yet; the placeholder would read as a
+    // real "(no messages)" session until the details arrive.
+    firstMessage: detailsPending && !scanned.firstMessage
+      ? ""
+      : scanned.firstMessage || "(no messages)",
+    parentSessionId: originSessionId,
+    ...(subagent
+      ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
+      : scanned.parentSessionPath
+        ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
+        : {}),
+    transient: false,
+    ...(detailsPending ? { detailsPending: true } : {}),
+  };
+}
+
+async function buildSessionList(scanned: ScannedSessionInfo[]): Promise<SessionInfo[]> {
+  const pathToId = new Map<string, string>();
+  for (const session of scanned) pathToId.set(sessionPathKey(session.path), session.id);
+  return attachSessionProjectInfo(scanned.map((session) => mapScannedSession(session, pathToId)));
+}
+
+async function loadAllSessions(): Promise<SessionInfo[]> {
+  return buildSessionList(await listSessionsIncremental());
+}
+
+/**
+ * Return a cheap catalogue for the first paint. Changed files contribute only
+ * header/stat metadata; a normal listAllSessions() call hydrates the exact
+ * counts, names, and first messages afterwards.
+ */
+export async function listSessionSummaries(): Promise<SessionInfo[]> {
+  return buildSessionList(await listSessionsIncremental({ deferDetails: true }));
+}
+
+export async function listAllSessions(options: { force?: boolean; allowStale?: boolean } = {}): Promise<SessionInfo[]> {
   if (options.force) invalidateSessionListCache();
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
   // Return cached result if still fresh (avoids re-scanning session files
   // and re-spawning git processes on every page load).
-  if (globalThis.__piSessionListCache && Date.now() - globalThis.__piSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS) {
-    return globalThis.__piSessionListCache.data;
+  const cache = globalThis.__piSessionListCache;
+  if (cache && cache.generation === generation && Date.now() - cache.ts < SESSION_LIST_CACHE_TTL_MS) {
+    return cache.data;
+  }
+
+  // Callers that only need session metadata — mapping search hits onto sidebar
+  // rows, for example — can take the previous scan and let the rebuild happen in
+  // the background. A rebuild costs hundreds of milliseconds because it re-reads
+  // every forked and subagent session, and it is triggered by ordinary agent
+  // activity rather than by anything the caller did.
+  if (options.allowStale && cache) {
+    void listAllSessions().catch(() => undefined);
+    return cache.data;
   }
 
   // Coalescing dedup: concurrent callers share the same in-flight promise
@@ -241,7 +287,7 @@ export async function listAllSessions(options: { force?: boolean } = {}): Promis
     if ((globalThis.__piSessionListGeneration ?? 0) !== generation) {
       return listAllSessions();
     }
-    globalThis.__piSessionListCache = { data, ts: Date.now() };
+    globalThis.__piSessionListCache = { data, ts: Date.now(), generation };
     return data;
   });
   const trackedPromise = loadPromise.finally(() => {
@@ -265,7 +311,7 @@ declare global {
   var __piSessionListPromise: Promise<SessionInfo[]> | undefined;
   var __piSessionListPromiseGeneration: number | undefined;
   var __piSessionListGeneration: number | undefined;
-  var __piSessionListCache: { data: SessionInfo[]; ts: number } | undefined;
+  var __piSessionListCache: { data: SessionInfo[]; ts: number; generation: number } | undefined;
 }
 
 const SESSION_LIST_CACHE_TTL_MS = 30_000;
@@ -357,7 +403,9 @@ function findSessionIdByPath(filePath: string): string | undefined {
 
 export function invalidateSessionListCache(): void {
   globalThis.__piSessionListGeneration = (globalThis.__piSessionListGeneration ?? 0) + 1;
-  globalThis.__piSessionListCache = undefined;
+  // The previous scan is kept, not discarded: it is no longer fresh, but it is
+  // still a complete catalogue apart from sessions created moments ago. Callers
+  // that pass `allowStale` read it instead of paying for a rebuild.
 }
 
 export function getSessionListVersion(): number {
