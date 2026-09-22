@@ -204,19 +204,30 @@
 }
 
 .enabled-models-banner-text {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   min-width: 0;
   flex: 1;
-  overflow: hidden;
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.enabled-models-banner-key {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.enabled-models-banner-key {
+.enabled-models-banner-facts {
+  flex: none;
   color: var(--text-dim);
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 .enabled-models-section {

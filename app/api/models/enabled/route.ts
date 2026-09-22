@@ -32,19 +32,23 @@ interface RequestContext {
   modelRuntime: ModelRuntime;
   models: readonly Model<Api>[];
   settingsManager: SettingsManager;
+  /** Where the two settings files live, for the banner to name one. */
+  paths: { cwd: string; agentDir: string };
 }
 
 async function loadContext(cwd: string): Promise<RequestContext> {
   const modelRuntime = await createModelRuntimeWithExtensions();
+  const agentDir = getAgentDir();
   return {
     modelRuntime,
     models: await modelRuntime.getAvailable(),
-    settingsManager: SettingsManager.create(cwd, getAgentDir()),
+    settingsManager: SettingsManager.create(cwd, agentDir),
+    paths: { cwd, agentDir },
   };
 }
 
 async function buildView(context: RequestContext): Promise<EnabledModelsView> {
-  const { patterns, scope } = readEnabledModelsSettings(context.settingsManager);
+  const { patterns, scope, path } = readEnabledModelsSettings(context.settingsManager, context.paths);
   const input = await buildEnabledModelsInput(patterns, context.models);
   const providerNames = new Map(
     context.modelRuntime.getProviders().map((provider) => [provider.id, provider.name]),
@@ -56,6 +60,7 @@ async function buildView(context: RequestContext): Promise<EnabledModelsView> {
     providerNames,
     customProviders: customProviderIds(context.modelRuntime),
     scope,
+    settingsPath: path,
     ...(modelError ? { modelError } : {}),
   });
 }
@@ -198,7 +203,7 @@ export async function PUT(req: Request) {
 
   try {
     const context = await loadContext(resolved.cwd);
-    const { patterns, scope } = readEnabledModelsSettings(context.settingsManager);
+    const { patterns, scope } = readEnabledModelsSettings(context.settingsManager, context.paths);
     if (scope === "project") {
       return Response.json(
         { error: "Project settings override enabledModels", reason: "project-scope" },

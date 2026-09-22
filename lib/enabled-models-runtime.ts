@@ -1,3 +1,5 @@
+import { homedir } from "os";
+import { join, sep } from "path";
 import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
@@ -132,6 +134,7 @@ export interface EnabledModelsViewOptions {
   providerNames: Map<string, string>;
   customProviders: ReadonlySet<string>;
   scope: "global" | "project";
+  settingsPath: string;
   modelError?: string;
 }
 
@@ -141,6 +144,7 @@ export function buildEnabledModelsView({
   providerNames,
   customProviders,
   scope,
+  settingsPath,
   modelError,
 }: EnabledModelsViewOptions): EnabledModelsView {
   const state = computeEnabledModelsState(input);
@@ -182,6 +186,7 @@ export function buildEnabledModelsView({
     availableTotal: input.availableRefs.length,
     providers,
     scope,
+    settingsPath,
     editable: scope === "global",
     ...(modelError ? { modelError } : {}),
   };
@@ -191,6 +196,16 @@ export interface EnabledModelsSettings {
   /** Effective value, i.e. what the model selector actually applies. */
   patterns: string[] | undefined;
   scope: "global" | "project";
+  /** The file that value came from, with the home directory shortened to `~`. */
+  path: string;
+}
+
+/** `~/.pi/agent/settings.json` reads better in a banner than the full path. */
+function displayPath(path: string): string {
+  const home = homedir();
+  if (!home || !path.startsWith(home)) return path;
+  const rest = path.slice(home.length);
+  return rest === "" || rest.startsWith(sep) ? `~${rest}` : path;
 }
 
 /**
@@ -201,11 +216,18 @@ export interface EnabledModelsSettings {
  * value makes every toggle a no-op. The route reports that instead of writing
  * something the user would never see take effect.
  */
-export function readEnabledModelsSettings(settingsManager: SettingsManager): EnabledModelsSettings {
+export function readEnabledModelsSettings(
+  settingsManager: SettingsManager,
+  { cwd, agentDir }: { cwd: string; agentDir: string },
+): EnabledModelsSettings {
   const projectPatterns = settingsManager.getProjectSettings().enabledModels;
+  const scope = projectPatterns === undefined ? "global" : "project";
   return {
     patterns: settingsManager.getEnabledModels(),
-    scope: projectPatterns === undefined ? "global" : "project",
+    scope,
+    path: displayPath(scope === "project"
+      ? join(cwd, ".pi", "settings.json")
+      : join(agentDir, "settings.json")),
   };
 }
 

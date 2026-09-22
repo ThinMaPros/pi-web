@@ -190,12 +190,14 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
       >
         {/* Name the setting and the file that holds it: the count alone left
             the user guessing where the panel wrote, and both read the same in
-            every language. */}
-        <code className="enabled-models-banner-key">
-          {view.scope === "project" ? ".pi/settings.json" : "settings.json"} · enabledModels
+            every language. A long path is what gets cut, never the numbers. */}
+        <code className="enabled-models-banner-key" title={view.settingsPath}>
+          {view.settingsPath}
         </code>
-        {` ${view.enabledTotal}/${view.availableTotal}`}
-        {stale > 0 && ` · ${t("models.enabledStale", { count: stale })}`}
+        <code className="enabled-models-banner-facts">
+          {`· enabledModels ${view.enabledTotal}/${view.availableTotal}`}
+          {stale > 0 && ` · ${t("models.enabledStale", { count: stale })}`}
+        </code>
       </span>
       {view.editable && stale > 0 && (
         <ConfigButton

@@ -127,9 +127,13 @@ the last-enabled-model guard blocks the way down.
 **Chrome is a tooltip.** Why a switch cannot move, and why a models.json
 provider is missing from the runtime, are one-line facts a user needs only when
 they hit them, so they ride on `title` instead of a paragraph under the
-control. The banner says `settings.json · enabledModels 20/104`: naming the
-file and the key is shorter than a sentence about limiting the selector, and it
-answers the question the sentence did not — where the panel just wrote.
+control. The banner says
+`~/.pi/agent/settings.json · enabledModels 20/104`: naming the file and the key
+is shorter than a sentence about limiting the selector, and it answers the
+question the sentence did not — where the panel just wrote. The path comes from
+the route (`settingsPath`), because only the server knows the agent directory
+and whether a project file shadows it, and it is the part that truncates: the
+key and the counts never shrink.
 
 ## Consequences
 
