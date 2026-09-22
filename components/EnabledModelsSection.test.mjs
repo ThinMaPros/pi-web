@@ -124,14 +124,22 @@ test("switches are locked while the scope is not editable", () => {
   assert.match(source, /disabled=\{busy \|\| !view\?\.editable \|\| lastOne\}/);
 });
 
-test("custom providers are switched by one switch, not two bulk buttons", () => {
-  assert.match(source, /const isCustom = provider\.kind === "custom";/);
-  assert.match(
-    source,
-    /\{isCustom \? \(\s*\n\s*<ConfigSwitch\s*\n\s*checked=\{toggle\.checked\}/,
-  );
+test("a custom provider is switched from its header, by one switch and no prose", () => {
+  assert.match(source, /export function EnabledModelsProviderSwitch\(\{/);
   assert.match(source, /onChange=\{\(checked\) => controller\.setProvider\(provider\.id, checked\)\}/);
-  assert.match(source, /\{isCustom \? \(\s*\n\s*<div className="enabled-models-note">\{t\("models\.enabledCustomHint"\)\}<\/div>/);
+  // It sits in the detail header, left of the provider's own buttons.
+  assert.match(
+    modelsConfigSource,
+    /<EnabledModelsProviderSwitch providerId=\{name\} controller=\{enabledModels\} \/>\s*\n\s*<ConfigButton variant="danger"/,
+  );
+  // Nothing about it is explained in body text any more.
+  assert.doesNotMatch(source, /enabledCustomHint/);
+  assert.doesNotMatch(source, /provider\.kind === "custom"/);
+});
+
+test("why the switch cannot move is a tooltip, not a paragraph", () => {
+  assert.match(source, /label=\{toggle\.reason\s*\n\s*\? t\(FAILURE_KEYS\[toggle\.reason\]\)/);
+  assert.match(source, /label=\{t\("models\.enabledCustomEmpty"\)\}/);
 });
 
 test("the provider switch is on only while every model of the provider is", () => {
@@ -142,21 +150,21 @@ test("the provider switch is on only while every model of the provider is", () =
 
   // Other providers keep models on, so both directions are live here.
   const [allOn, allOnProvider] = providerOf([entry("sonnet", true), entry("opus", true)], { enabledTotal: 4 });
-  assert.deepEqual(enabledModelsProviderToggle(allOn, allOnProvider), { checked: true, blocked: false });
+  assert.deepEqual(enabledModelsProviderToggle(allOn, allOnProvider), { checked: true, blocked: false, reason: null });
 
   // A partial selection reads as off, and one click completes it.
   const [partial, partialProvider] = providerOf([entry("sonnet", true), entry("opus", false)], { enabledTotal: 4 });
-  assert.deepEqual(enabledModelsProviderToggle(partial, partialProvider), { checked: false, blocked: false });
+  assert.deepEqual(enabledModelsProviderToggle(partial, partialProvider), { checked: false, blocked: false, reason: null });
 
   const [none, noneProvider] = providerOf([entry("sonnet", false), entry("opus", false)], { enabledTotal: 3 });
-  assert.deepEqual(enabledModelsProviderToggle(none, noneProvider), { checked: false, blocked: false });
+  assert.deepEqual(enabledModelsProviderToggle(none, noneProvider), { checked: false, blocked: false, reason: null });
 });
 
 test("the provider switch is locked when it would empty the scope or the file is read-only", () => {
   const lockedOn = view([entry("sonnet", true), entry("opus", true)], { enabledTotal: 2 });
   assert.deepEqual(
     enabledModelsProviderToggle(lockedOn, { ...lockedOn.providers[0], kind: "custom" }),
-    { checked: true, blocked: true },
+    { checked: true, blocked: true, reason: "last-model" },
   );
 
   const readOnly = view([entry("sonnet", true), entry("opus", false)], {
@@ -166,11 +174,11 @@ test("the provider switch is locked when it would empty the scope or the file is
   });
   assert.deepEqual(
     enabledModelsProviderToggle(readOnly, { ...readOnly.providers[0], kind: "custom" }),
-    { checked: false, blocked: true },
+    { checked: false, blocked: true, reason: "project-scope" },
   );
 });
 
-test("the section is mounted for built-in, api-key and custom providers", () => {
+test("the section is mounted for built-in and api-key providers", () => {
   assert.match(
     modelsConfigSource,
     /provider\.loggedIn && <EnabledModelsSection providerId=\{provider\.id\} controller=\{enabledModels\} \/>/,
@@ -179,11 +187,9 @@ test("the section is mounted for built-in, api-key and custom providers", () => 
     modelsConfigSource,
     /provider\.configured && <EnabledModelsSection providerId=\{provider\.id\} controller=\{enabledModels\} \/>/,
   );
-  assert.match(
-    modelsConfigSource,
-    /<EnabledModelsSection providerId=\{name\} controller=\{enabledModels\} custom \/>/,
-  );
   assert.match(modelsConfigSource, /<EnabledModelsBanner controller=\{enabledModels\} \/>/);
+  // A models.json provider gets the header switch instead of a section.
+  assert.doesNotMatch(modelsConfigSource, /<EnabledModelsSection providerId=\{name\}/);
 });
 
 test("the banner offers to prune unmatched entries only when there are some", () => {
@@ -193,8 +199,20 @@ test("the banner offers to prune unmatched entries only when there are some", ()
 });
 
 test("a missing custom provider is not blamed on a sign-in", () => {
-  assert.match(source, /t\(custom \? "models\.enabledCustomEmpty" : "models\.enabledUnavailable"\)/);
-  assert.match(modelsConfigSource, /<EnabledModelsSection providerId=\{name\} controller=\{enabledModels\} custom \/>/);
+  const switchSource = source.slice(
+    source.indexOf("export function EnabledModelsProviderSwitch"),
+    source.indexOf("export function EnabledModelsSection"),
+  );
+  assert.match(switchSource, /t\("models\.enabledCustomEmpty"\)/);
+  assert.doesNotMatch(switchSource, /enabledUnavailable/);
+});
+
+test("the section carries the usage heading font and no rule above it", () => {
+  assert.match(source, /<span className="enabled-models-title">/);
+  const title = cssSource.slice(cssSource.indexOf(".enabled-models-title {"));
+  assert.match(title.slice(0, title.indexOf("}")), /font-size: 13px;[\s\S]*font-weight: 600;/);
+  const section = cssSource.slice(cssSource.indexOf(".enabled-models-section {"));
+  assert.doesNotMatch(section.slice(0, section.indexOf("}")), /border-top/);
 });
 
 test("saving models.json resyncs the switches with the pre-save intent", () => {

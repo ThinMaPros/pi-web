@@ -117,11 +117,19 @@ meaning, the `12/40` readout carries the state, the filter turns them into
 `/scoped-models` is displayed honestly instead of being forced into a binary
 control. A models.json provider has no rows, so there both buttons only ever
 sent the same provider-wide write and one switch says it with half the
-controls. That switch is on only when every model of the provider is on: a
-partial state then reads as off beside its `1/2 enabled` count and one click
-completes it. Reading it as "any enabled" instead would leave partial
-unreachable in both directions whenever the last-enabled-model guard blocks the
-way down.
+controls. It lives in that provider's detail header next to Delete, where the
+panel's other provider-wide actions are, and the sidebar's `1/2` badge carries
+the count. That switch is on only when every model of the provider is on: a
+partial state then reads as off and one click completes it. Reading it as "any
+enabled" instead would leave partial unreachable in both directions whenever
+the last-enabled-model guard blocks the way down.
+
+**Chrome is a tooltip.** Why a switch cannot move, and why a models.json
+provider is missing from the runtime, are one-line facts a user needs only when
+they hit them, so they ride on `title` instead of a paragraph under the
+control. The banner says `settings.json · enabledModels 20/104`: naming the
+file and the key is shorter than a sentence about limiting the selector, and it
+answers the question the sentence did not — where the panel just wrote.
 
 ## Consequences
 

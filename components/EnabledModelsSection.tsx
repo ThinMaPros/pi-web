@@ -10,7 +10,7 @@ import {
   findProviderView,
   isLastEnabledModel,
 } from "./enabled-models-helpers";
-import { ConfigButton, ConfigSectionTitle, ConfigSwitch } from "./SettingsUi";
+import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 
 /**
  * Model switches backed by pi's `enabledModels` setting.
@@ -188,10 +188,14 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
         className="enabled-models-banner-text"
         {...(stale > 0 ? { title: t("models.enabledStaleHint") } : {})}
       >
-        {scoped
-          ? t("models.enabledBanner", { enabled: view.enabledTotal, total: view.availableTotal })
-          : t("models.enabledStale", { count: stale })}
-        {scoped && stale > 0 && ` · ${t("models.enabledStale", { count: stale })}`}
+        {/* Name the setting and the file that holds it: the count alone left
+            the user guessing where the panel wrote, and both read the same in
+            every language. */}
+        <code className="enabled-models-banner-key">
+          {view.scope === "project" ? ".pi/settings.json" : "settings.json"} · enabledModels
+        </code>
+        {` ${view.enabledTotal}/${view.availableTotal}`}
+        {stale > 0 && ` · ${t("models.enabledStale", { count: stale })}`}
       </span>
       {view.editable && stale > 0 && (
         <ConfigButton
@@ -217,15 +221,64 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
   );
 }
 
-export function EnabledModelsSection({
+/**
+ * The single switch a models.json provider gets, for its detail header next to
+ * the provider's own buttons.
+ *
+ * Such a provider has no rows of its own — the panel edits its models directly
+ * — so this switch is the whole control, and it is checked only while every one
+ * of those models is enabled. Why it cannot move is a tooltip, not a paragraph.
+ */
+export function EnabledModelsProviderSwitch({
   providerId,
   controller,
-  custom = false,
 }: {
   providerId: string;
   controller: EnabledModelsController;
-  /** True for a models.json provider, whose models the panel itself edits. */
-  custom?: boolean;
+}) {
+  const { t } = useI18n();
+  const { view, loading, pending, failure } = controller;
+  const provider = findProviderView(view, providerId);
+  const message = failure ? (failure.messageKey ? t(failure.messageKey) : failure.message) : null;
+
+  if (loading && !view) return null;
+  // Missing from the runtime: edits not saved yet, no models, or a key that
+  // does not work — never a sign-in, so do not send the user looking for one.
+  if (!provider) {
+    return (
+      <ConfigSwitch
+        checked={false}
+        disabled
+        label={t("models.enabledCustomEmpty")}
+        onChange={() => {}}
+      />
+    );
+  }
+
+  const toggle = enabledModelsProviderToggle(view, provider);
+  return (
+    <>
+      {message && <span className="enabled-models-switch-error">{message}</span>}
+      <ConfigSwitch
+        checked={toggle.checked}
+        loading={pending === `provider:${provider.id}`}
+        disabled={pending !== null || toggle.blocked}
+        label={toggle.reason
+          ? t(FAILURE_KEYS[toggle.reason])
+          : t("models.enabledProviderToggle", { provider: provider.name })}
+        onChange={(checked) => controller.setProvider(provider.id, checked)}
+      />
+    </>
+  );
+}
+
+/** Per-model switches for a provider that owns its own model list. */
+export function EnabledModelsSection({
+  providerId,
+  controller,
+}: {
+  providerId: string;
+  controller: EnabledModelsController;
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
@@ -238,25 +291,13 @@ export function EnabledModelsSection({
     return <div className="enabled-models-empty">{t("agents.modelsLoading")}</div>;
   }
   if (!provider) {
-    // A models.json provider is missing from the runtime when its edits are not
-    // saved yet, when it has no models, or when its key does not work — never
-    // because of a sign-in, so do not send the user looking for one.
     return failure?.message
       ? <div className="enabled-models-error">{failure.message}</div>
-      : (
-        <div className="enabled-models-empty">
-          {t(custom ? "models.enabledCustomEmpty" : "models.enabledUnavailable")}
-        </div>
-      );
+      : <div className="enabled-models-empty">{t("models.enabledUnavailable")}</div>;
   }
 
-  // A models.json provider has no rows of its own — the panel edits its models
-  // directly — so it is switched as a whole and one switch says everything the
-  // two bulk buttons said: they only ever sent the same provider-wide write.
-  const isCustom = provider.kind === "custom";
-  const shown = isCustom ? provider.models : filterEnabledModels(provider.models, query);
+  const shown = filterEnabledModels(provider.models, query);
   const bulk = enabledModelsBulkActions(view, shown);
-  const toggle = enabledModelsProviderToggle(view, provider);
   const filtered = shown.length !== provider.models.length;
   const busy = pending !== null;
   const bulkKey = `provider:${provider.id}`;
@@ -270,39 +311,25 @@ export function EnabledModelsSection({
   return (
     <div className="enabled-models-section">
       <div className="enabled-models-header">
-        <ConfigSectionTitle>{t("models.enabledSection")}</ConfigSectionTitle>
+        <span className="enabled-models-title">{t("models.enabledSection")}</span>
         <span className="enabled-models-count">
           {t("models.enabledCount", { enabled: provider.enabledCount, total: provider.models.length })}
         </span>
-        {isCustom ? (
-          <ConfigSwitch
-            checked={toggle.checked}
-            loading={pending === bulkKey}
-            disabled={busy || toggle.blocked}
-            label={toggle.checked && !bulk.canDisable
-              ? t("models.enabledLastModel")
-              : t("models.enabledProviderToggle", { provider: provider.name })}
-            onChange={(checked) => controller.setProvider(provider.id, checked)}
-          />
-        ) : (
-          <>
-            <ConfigButton
-              size="small"
-              disabled={busy || !bulk.canEnable}
-              onClick={() => runBulk(true, bulk.enableRefs)}
-            >
-              {filtered ? t("models.enableShown") : t("models.enableAll")}
-            </ConfigButton>
-            <ConfigButton
-              size="small"
-              disabled={busy || !bulk.canDisable}
-              title={!bulk.canDisable && bulk.disableRefs.length > 0 ? t("models.enabledLastModel") : undefined}
-              onClick={() => runBulk(false, bulk.disableRefs)}
-            >
-              {filtered ? t("models.disableShown") : t("models.disableAll")}
-            </ConfigButton>
-          </>
-        )}
+        <ConfigButton
+          size="small"
+          disabled={busy || !bulk.canEnable}
+          onClick={() => runBulk(true, bulk.enableRefs)}
+        >
+          {filtered ? t("models.enableShown") : t("models.enableAll")}
+        </ConfigButton>
+        <ConfigButton
+          size="small"
+          disabled={busy || !bulk.canDisable}
+          title={!bulk.canDisable && bulk.disableRefs.length > 0 ? t("models.enabledLastModel") : undefined}
+          onClick={() => runBulk(false, bulk.disableRefs)}
+        >
+          {filtered ? t("models.disableShown") : t("models.disableAll")}
+        </ConfigButton>
       </div>
 
       {!view?.editable && <div className="enabled-models-note">{t("models.enabledProjectScope")}</div>}
@@ -312,50 +339,44 @@ export function EnabledModelsSection({
         </div>
       )}
 
-      {isCustom ? (
-        <div className="enabled-models-note">{t("models.enabledCustomHint")}</div>
-      ) : (
-        <>
-          {provider.models.length > 8 && (
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("models.enabledFilterPlaceholder", { count: provider.models.length })}
-              aria-label={t("models.enabledFilter")}
-              className="enabled-models-filter"
-            />
-          )}
-          <div className="enabled-models-list">
-            {shown.length === 0 ? (
-              <div className="enabled-models-empty">{t("models.enabledNoMatches")}</div>
-            ) : shown.map((model) => {
-              const lastOne = isLastEnabledModel(view, model);
-              return (
-                <div key={model.ref} className="enabled-models-row">
-                  <span className="enabled-models-row-text">
-                    <span className="enabled-models-row-name">{model.name}</span>
-                    <code className="enabled-models-row-id">{model.id}</code>
-                  </span>
-                  {model.thinkingPin && (
-                    <span className="enabled-models-pin" title={t("models.enabledPinHint")}>
-                      {model.thinkingPin}
-                    </span>
-                  )}
-                  <ConfigSwitch
-                    checked={model.enabled}
-                    loading={pending === model.ref}
-                    disabled={busy || !view?.editable || lastOne}
-                    label={lastOne
-                      ? t("models.enabledLastModel")
-                      : t("models.enabledToggle", { model: model.name })}
-                    onChange={(checked) => controller.setModels(model.ref, [model.ref], checked)}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </>
+      {provider.models.length > 8 && (
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("models.enabledFilterPlaceholder", { count: provider.models.length })}
+          aria-label={t("models.enabledFilter")}
+          className="enabled-models-filter"
+        />
       )}
+      <div className="enabled-models-list">
+        {shown.length === 0 ? (
+          <div className="enabled-models-empty">{t("models.enabledNoMatches")}</div>
+        ) : shown.map((model) => {
+          const lastOne = isLastEnabledModel(view, model);
+          return (
+            <div key={model.ref} className="enabled-models-row">
+              <span className="enabled-models-row-text">
+                <span className="enabled-models-row-name">{model.name}</span>
+                <code className="enabled-models-row-id">{model.id}</code>
+              </span>
+              {model.thinkingPin && (
+                <span className="enabled-models-pin" title={t("models.enabledPinHint")}>
+                  {model.thinkingPin}
+                </span>
+              )}
+              <ConfigSwitch
+                checked={model.enabled}
+                loading={pending === model.ref}
+                disabled={busy || !view?.editable || lastOne}
+                label={lastOne
+                  ? t("models.enabledLastModel")
+                  : t("models.enabledToggle", { model: model.name })}
+                onChange={(checked) => controller.setModels(model.ref, [model.ref], checked)}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -49,6 +49,8 @@ export interface EnabledModelsProviderToggle {
   checked: boolean;
   /** True when the switch cannot move in the direction it would go. */
   blocked: boolean;
+  /** Why it cannot move, as a refusal key, or null while it can. */
+  reason: "last-model" | "project-scope" | null;
 }
 
 /**
@@ -67,7 +69,12 @@ export function enabledModelsProviderToggle(
 ): EnabledModelsProviderToggle {
   const bulk = enabledModelsBulkActions(view, provider.models);
   const checked = provider.models.length > 0 && provider.enabledCount === provider.models.length;
-  return { checked, blocked: checked ? !bulk.canDisable : !bulk.canEnable };
+  const blocked = checked ? !bulk.canDisable : !bulk.canEnable;
+  return {
+    checked,
+    blocked,
+    reason: !blocked ? null : view?.editable ? "last-model" : "project-scope",
+  };
 }
 
 /** True when switching this single model off would empty the scope. */

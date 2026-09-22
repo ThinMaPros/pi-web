@@ -43,6 +43,7 @@ import {
 } from "./SettingsUi";
 import {
   EnabledModelsBanner,
+  EnabledModelsProviderSwitch,
   EnabledModelsSection,
   useEnabledModels,
   type EnabledModelsController,
@@ -402,6 +403,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
           <SectionTitle>{t("i18n.provider")}</SectionTitle>
         </ConfigDetailHeaderInfo>
         <ConfigDetailActions>
+          <EnabledModelsProviderSwitch providerId={name} controller={enabledModels} />
           <ConfigButton variant="danger" size="small" onClick={onDelete}>{t("i18n.delete")}</ConfigButton>
         </ConfigDetailActions>
       </ConfigDetailHeader>
@@ -544,7 +546,6 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
         )}
       </div>
 
-      <EnabledModelsSection providerId={name} controller={enabledModels} custom />
     </div>
   );
 }
