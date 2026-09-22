@@ -378,9 +378,17 @@ function getPathToIdCache(): Map<string, string> {
 // Read-only SessionManager cache.
 //
 // Opening a large session (SessionManager.open -> full JSONL parse + index
-// build) costs 150-600ms. Detail/context/pagination routes re-open the same
-// file on every request whenever no live runtime wrapper exists, so a small
-// fingerprint-validated cache turns repeat opens into ~1ms map hits.
+// build) costs 150ms for a small session and ~1.1s for an 82MB one. Detail/
+// context/pagination routes re-open the same file on every request whenever no
+// live runtime wrapper exists, so a fingerprint-validated cache turns repeat
+// opens into ~1ms map hits.
+//
+// Budget: a count cap alone is not enough. Parsed entries retain roughly the
+// file's own size in heap (measured: an 82MB session holds ~94MB), so twelve
+// large sessions would pin ~1.1GB. Entries are therefore also capped by the
+// summed on-disk size of the cached files, and a single session larger than
+// SM_CACHE_LIMITS.maxFileBytes is served fresh instead of being cached — one
+// oversize session must not evict every useful entry.
 //
 // Safety: cached managers are READ-ONLY views. Any write path must go through
 // a live wrapper or SessionManager.open directly — call openSessionManager
@@ -389,23 +397,53 @@ function getPathToIdCache(): Map<string, string> {
 // invalidateSessionManagerCache(filePath) is called on delete/rename.
 // ---------------------------------------------------------------------------
 
-declare global {
-  var __piSmCache: Map<string, { sm: unknown; fingerprint: string }> | undefined;
+interface SmCacheEntry {
+  sm: unknown;
+  fingerprint: string;
+  /** On-disk size, the proxy for this entry's retained heap. */
+  bytes: number;
 }
 
-const SM_CACHE_MAX = 12;
+declare global {
+  var __piSmCache: Map<string, SmCacheEntry> | undefined;
+}
 
-function getSmCache(): Map<string, { sm: unknown; fingerprint: string }> {
+/**
+ * Cache budget. Exported so tests can shrink it to values they can actually
+ * produce on disk; production never reassigns these.
+ */
+export const SM_CACHE_LIMITS = {
+  /** Most sessions held at once. */
+  maxEntries: 12,
+  /** Summed on-disk size of cached sessions. */
+  maxTotalBytes: 256 * 1024 * 1024,
+  /** A session larger than this is never cached — it would evict everything else. */
+  maxFileBytes: 64 * 1024 * 1024,
+};
+
+function getSmCache(): Map<string, SmCacheEntry> {
   if (!globalThis.__piSmCache) globalThis.__piSmCache = new Map();
   return globalThis.__piSmCache;
 }
 
-function sessionFileFingerprint(filePath: string): string | null {
+function sessionFileStats(filePath: string): { fingerprint: string; bytes: number } | null {
   try {
     const stats = statSync(filePath);
-    return `${stats.size}:${stats.mtimeMs}`;
+    return { fingerprint: `${stats.size}:${stats.mtimeMs}`, bytes: stats.size };
   } catch {
     return null;
+  }
+}
+
+/** Evict least-recently-used entries until both the count and byte caps hold. */
+function evictSmCache(cache: Map<string, SmCacheEntry>): void {
+  let total = 0;
+  for (const entry of cache.values()) total += entry.bytes;
+  while (cache.size > SM_CACHE_LIMITS.maxEntries || total > SM_CACHE_LIMITS.maxTotalBytes) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    total -= cache.get(oldestKey)?.bytes ?? 0;
+    cache.delete(oldestKey);
   }
 }
 
@@ -431,14 +469,14 @@ export function openSessionManager(
 
   const cache = getSmCache();
   const pathKey = sessionPathKey(filePath);
-  const fingerprint = sessionFileFingerprint(filePath);
-  if (fingerprint === null) {
+  const stats = sessionFileStats(filePath);
+  if (stats === null) {
     cache.delete(pathKey);
     return SessionManager.open(filePath, undefined);
   }
 
   const cached = cache.get(pathKey);
-  if (cached && cached.fingerprint === fingerprint) {
+  if (cached && cached.fingerprint === stats.fingerprint) {
     // LRU touch.
     cache.delete(pathKey);
     cache.set(pathKey, cached);
@@ -446,12 +484,13 @@ export function openSessionManager(
   }
 
   const sm = SessionManager.open(filePath, undefined);
-  cache.set(pathKey, { sm, fingerprint });
-  while (cache.size > SM_CACHE_MAX) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey === undefined) break;
-    cache.delete(oldestKey);
+  if (stats.bytes > SM_CACHE_LIMITS.maxFileBytes) {
+    // Too large to hold: drop any stale entry for this path and serve fresh.
+    cache.delete(pathKey);
+    return sm;
   }
+  cache.set(pathKey, { sm, fingerprint: stats.fingerprint, bytes: stats.bytes });
+  evictSmCache(cache);
   return sm;
 }
 

@@ -17,7 +17,7 @@ const jiti = createJiti(import.meta.url, {
 const { buildSessionContext } = await jiti.import("@/lib/session-reader");
 
 test("context route parses ?tail and ?before, excluding the boundary on paging", () => {
-  assert.match(routeSrc, /const tail = Number\.isFinite\(rawTail\) && rawTail > 0 \? Math\.min\(rawTail, 1000\) : 50/);
+  assert.match(routeSrc, /const tail = Number\.isFinite\(rawTail\) && rawTail > 0 \? Math\.min\(rawTail, 1000\) : 200/);
   assert.match(routeSrc, /const before = url\.searchParams\.get\("before"\)/);
   assert.match(routeSrc, /buildSessionContext\(sm\.getEntries\(\) as never, before \?\? leafId, \{[^}]*excludeLeaf: Boolean\(before\)/);
 });

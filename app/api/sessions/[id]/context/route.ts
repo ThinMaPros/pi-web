@@ -11,11 +11,18 @@ export async function GET(
   const leafId = url.searchParams.get("leafId") ?? undefined;
   const deferThinking = url.searchParams.has("deferThinking");
   const deferToolResultImages = url.searchParams.has("deferMedia");
-  // `tail` caps the ancestor chain returned (default 50); `before` rewinds the
-  // walk start to an older entry so the client can page upward without
-  // re-fetching the whole active branch.
+  // `tail` caps the ancestor chain returned; `before` rewinds the walk start to
+  // an older entry so the client can page upward without re-fetching the whole
+  // active branch.
+  //
+  // The default is 200 visible entries, not 50. Reading the window is not what
+  // costs — the enclosing SessionManager.open parses the whole JSONL either way
+  // — so a 50-entry default paid full parse price to hand back ~6 turns of a
+  // tool-heavy session. 200 yields ~25 turns for the same read, which is also
+  // what the minimap can map, and it quarters the round trips when scrolling
+  // up. rawWindowCap still bounds the raw entries behind those turns.
   const rawTail = Number(url.searchParams.get("tail"));
-  const tail = Number.isFinite(rawTail) && rawTail > 0 ? Math.min(rawTail, 1000) : 50;
+  const tail = Number.isFinite(rawTail) && rawTail > 0 ? Math.min(rawTail, 1000) : 200;
   const before = url.searchParams.get("before") ?? undefined;
 
   try {
