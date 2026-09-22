@@ -58,11 +58,13 @@ the user asked for:
   override is a profile in its own right and is switched off through its own
   frontmatter.
 
-**The rest of a built-in stays read-only.** Only the switch gained somewhere to
-write; the name, prompt, tools and model of a built-in are still changed by
-saving a same-name profile that shadows it. Making the *form* writable would
-reintroduce the frozen full copy this decision avoids, and doing it well needs
-the override to be a visible, revertible thing in the panel — a separate change.
+**A built-in remains deliberately uneditable in place.** Only the switch gained
+somewhere to write; the name, prompt, tools and model of a built-in are changed
+by saving a same-name profile that shadows it, which is the supported path and
+not a workaround for a missing feature. An editable form would have to persist
+the result as a full copy of the profile, frozen at the version it was copied
+from — the cost this decision exists to avoid — so the switch is the only
+control a built-in gets.
 
 ## Consequences
 
