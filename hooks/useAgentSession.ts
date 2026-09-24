@@ -1330,7 +1330,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (!promptWasPending && !firstNotification) break;
 
           const sid = sessionIdRef.current;
-          if (sid) void loadSession(sid);
+          // local: include live state. Extension commands (e.g. pi.setModel) change the
+          // model without emitting a session event, so the file alone is stale.
+          if (sid) void loadSession(sid, false, true);
           // An extension-injected agent may already have started before the
           // command's prompt_done. Keep that active stage visible and let its
           // agent_settled event perform the next completion transition.

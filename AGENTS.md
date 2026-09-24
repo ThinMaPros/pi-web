@@ -1,5 +1,15 @@
 # Pi Web - Development Notes
 
+## Local fork (read first)
+
+This checkout is a personal fork for local use only.
+
+- Remotes: `upstream` = agegr/pi-web (pull updates only), `origin` = ThinMaPros/pi-web (backup). Work on branch `local`; update with `git fetch upstream && git rebase upstream/main`.
+- Never open PRs or issues upstream. Push only to `origin`, and only when the user asks. Do not commit unless asked.
+- Keep local changes easy to rebase: put new code in `components/local/` or `lib/local/`, wire it into upstream files with as few lines as possible, and mark those lines with a `local:` comment.
+- Running: `pi-web` is `npm link`ed to this checkout; `package.json` bin points at `bin/local/pi-web-ctl.js` (foreground by default, plus `start`/`stop`/`status`/`logs`; config `~/.pi/agent/pi-web.json`, pid/log in `~/.pi/agent/`). It serves the production build, so after code changes: `pi-web stop && npm run build && pi-web start`. Never run `npm run dev` while `pi-web` is up (both use `.next/`).
+- Local changes so far: `next.config.ts` (`agentRules: false`), `components/local/AccountButton.tsx` + its line in `ChatInput.tsx` (pi-codex-claude account switcher via `/cxc:switch`), `hooks/useAgentSession.ts` `prompt_done` reloads live state so extension-driven model changes show up, `lib/local/account-models.ts` + one line in `ChatInput.tsx` model options (model picker lists only the current pi-codex-claude account's models), wallpaper: `lib/local/wallpaper-store.ts` (IndexedDB), `components/local/Wallpaper.tsx` + `app/local-wallpaper.css` wired in `app/layout.tsx`, `components/local/WallpaperSettings.tsx` wired in `SettingsPanel.tsx` (General). Shortcuts: `components/local/LocalShortcuts.tsx` wired in `app/layout.tsx` (Ctrl+Shift+L account, Cmd+B sidebar, Cmd+, settings, Cmd+K session search; presses upstream buttons by aria-label).
+
 ## Quick Start
 
 ```bash

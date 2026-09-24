@@ -29,6 +29,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { AccountButton } from "./local/AccountButton"; // local
+import { filterAccountModels } from "@/lib/local/account-models"; // local
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -1516,7 +1518,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelSelectorOption[] = (() => {
     if (modelList && modelList.length > 0) {
-      return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }));
+      // local: only the current pi-codex-claude account's models
+      return filterAccountModels(modelList, model?.provider).map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }));
     }
     return Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
       provider: model?.provider ?? "unknown",
@@ -2316,6 +2319,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 isAutoSelection={isAutoModelSelection}
               />
             )}
+            {/* local: pi-codex-claude account switcher */}
+            <AccountButton provider={model?.provider} isStreaming={isStreaming} onSend={(message) => onSend(message)} onLoadSlashCommands={onLoadSlashCommands} />
           </div>
 
           {/* spacer */}

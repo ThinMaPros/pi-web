@@ -5,6 +5,9 @@ import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./settings.css";
+import "./local-wallpaper.css"; // local
+import { Wallpaper } from "@/components/local/Wallpaper"; // local
+import { LocalShortcuts } from "@/components/local/LocalShortcuts"; // local
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],
@@ -72,6 +75,8 @@ export default function RootLayout({
       <body translate="no" className="notranslate" suppressHydrationWarning>
         {children}
         <PwaRegistration />
+        <Wallpaper /> {/* local */}
+        <LocalShortcuts /> {/* local */}
       </body>
     </html>
   );

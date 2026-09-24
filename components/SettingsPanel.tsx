@@ -30,6 +30,7 @@ import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
+import { WallpaperSettings } from "./local/WallpaperSettings"; // local
 
 interface Props {
   cwd: string | null;
@@ -186,6 +187,8 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           })}
         </div>
       </section>
+
+      <WallpaperSettings /> {/* local */}
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.chat")}</h3>
