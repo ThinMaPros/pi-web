@@ -12,6 +12,8 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  // local: don't let `next dev` rewrite AGENTS.md/CLAUDE.md when run by a coding agent
+  agentRules: false,
   outputFileTracingRoot: configDir,
   experimental: {
     // proxy.ts matches /api/:path*, and Next buffers the request body whenever
