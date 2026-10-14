@@ -59,6 +59,7 @@ import {
   readSessionToolSelection,
   validateSessionToolSelection,
 } from "./session-tool-selection";
+import { createLocalContextCaptureExtension, localContextUsage } from "./local/context-usage"; // local: Context panel
 
 // ============================================================================
 // Types
@@ -211,6 +212,7 @@ const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
   "get_last_assistant_text",
   "get_tools",
   "get_commands",
+  "local_context_usage", // local: read-only Context panel query
   "extension_ui_response",
   "extension_ui_input",
 ]);
@@ -1316,6 +1318,8 @@ export class AgentSessionWrapper {
         this.inner.abortBash();
         return null;
       }
+
+      case "local_context_usage": return localContextUsage(this.inner, this.exactSystemPrompt?.()); // local: Context panel
 
         default:
           throw new Error(`Unsupported command: ${type}`);
@@ -2559,6 +2563,7 @@ export async function startRpcSession(
                 () => listSubagentProfiles(sessionCwd),
                 isBuiltInSubagentsEnabled,
               ),
+              createLocalContextCaptureExtension(), // local: passive Context panel capture (read-only)
             ],
             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
           },
