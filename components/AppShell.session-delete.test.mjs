@@ -33,6 +33,7 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     capturedSelectedSession,
     selectedSession: capturedSelectedSession, // the stale closure value, if the code reads it
     selectedSessionRef: { current: active },
+    removeSessionTab() {}, // local: session tabs test context
     activeNewSessionDraftKeyRef: { current: null },
     invalidateWorkspaceRestore() {},
     clearTabOpenSession() {},
