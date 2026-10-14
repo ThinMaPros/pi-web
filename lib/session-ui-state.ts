@@ -1,10 +1,11 @@
 import { mkdirSync, renameSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { serializeByKey } from "./key-serializer";
 import { readRegularFileText } from "./regular-file";
+import { piWebDataPath } from "./local/pi-web-data"; // local: keep pi-web state in its own data directory.
 import {
   applySessionUiStateRequest,
   emptySessionUiState,
@@ -88,7 +89,7 @@ function copyState(state: SessionUiState): SessionUiState {
 }
 
 export function getSessionUiStatePath(agentDir = getAgentDir()): string {
-  return join(agentDir, "pi-web-session-state.json");
+  return piWebDataPath("pi-web-session-state.json", agentDir); // local: data path migration.
 }
 
 type Parsed = { ok: true; state: SessionUiState; raw: Record<string, unknown> } | { ok: false };
@@ -185,7 +186,7 @@ function editState(
   edit: (state: SessionUiState) => { state: SessionUiState; changed: boolean },
 ): Promise<SessionUiState> {
   return serializeByKey(QUEUE_KEY, path, async () => {
-    mkdirSync(dirname(path), { recursive: true });
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); // local: keep pi-web data directory private.
     let release: () => Promise<void>;
     try {
       release = await lockfile.lock(path, LOCK_OPTIONS);

@@ -10,7 +10,7 @@
 //   pi-web status      show whether it runs and where
 //   pi-web logs [-f]   print (or follow) the background log
 //
-// Config: ~/.pi/agent/pi-web.json  { "port", "tailscale", "tailscalePort", "password", "open" }
+// Config: ~/.pi/agent/pi-web/pi-web.json  { "port", "tailscale", "tailscalePort", "password", "open" }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { spawn, execFileSync, spawnSync } = require("node:child_process");
@@ -20,10 +20,30 @@ const os = require("node:os");
 const path = require("node:path");
 
 const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
-const configPath = path.join(agentDir, "pi-web.json");
-const pidPath = path.join(agentDir, "pi-web.pid");
-const watcherPidPath = path.join(agentDir, "pi-web-tailscale-watch.pid");
-const logPath = path.join(agentDir, "pi-web.log");
+// local: preserve legacy CLI files while moving them under pi-web/ without replacing newer files.
+function piWebDataPath(name, baseDir = agentDir) {
+  const directory = path.join(baseDir, "pi-web");
+  const destination = path.join(directory, name);
+  const legacy = path.join(baseDir, name);
+  if (!fs.existsSync(destination) && fs.existsSync(legacy)) {
+    try {
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      // local: link claims the destination atomically; POSIX rename could overwrite a concurrent file.
+      fs.linkSync(legacy, destination);
+      fs.unlinkSync(legacy);
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "EEXIST") throw error;
+    }
+  }
+  return destination;
+}
+const configPath = piWebDataPath("pi-web.json"); // local: config data directory.
+const pidPath = piWebDataPath("pi-web.pid"); // local: pid data directory.
+const watcherPidPath = piWebDataPath("pi-web-tailscale-watch.pid"); // local: watcher pid data directory.
+const logPath = piWebDataPath("pi-web.log"); // local: log data directory.
+function ensureDataDirectory(file) { // local: reads don't create pi-web/; writers do.
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+}
 const pkgDir = path.join(__dirname, "..", "..");
 const upstreamBin = path.join(pkgDir, "bin", "pi-web.js");
 const HOST = "127.0.0.1";
@@ -215,12 +235,26 @@ function ensureTailscaleMapping(config, tailStatus = getTailscaleStatus()) {
   }
 }
 
+/**
+ * Removes our serve mapping. Tailscale keeps serve config while stopped but
+ * refuses to edit it then ("Tailscale is stopped."), so a stopped Tailscale
+ * leaves the mapping in place: "kept". `status`/`stop` remove it once it runs.
+ */
 function disableTailscale(config) {
+  const snapshot = getTailscaleStatus();
+  if (!isOurServeMapping(config)) return "absent";
+  if (!snapshot.running) return "kept";
   try {
     tailscale(["serve", `--https=${config.tailscalePort}`, "off"]);
-  } catch {
-    // Nothing was being served, or Tailscale is stopped.
+    return "removed";
+  } catch (error) {
+    console.warn(`pi-web: could not remove the Tailscale :${config.tailscalePort} mapping (${firstLine(error)}).`);
+    return "failed";
   }
+}
+
+function warnKeptMapping(config) {
+  console.warn(`pi-web: Tailscale is stopped, so its :${config.tailscalePort} mapping stays until Tailscale runs; \`pi-web status\` or \`pi-web stop\` removes it then.`);
 }
 
 function firstLine(error) {
@@ -279,6 +313,7 @@ async function isPiWebProcessRunning(config) {
 function startTailscaleWatcher() {
   const existing = runningWatcherPid();
   if (existing) return existing;
+  ensureDataDirectory(logPath); // local: create data directory before writing logs.
   const log = fs.openSync(logPath, "a");
   const child = spawn(process.execPath, [__filename, "__tailscale-watch"], {
     cwd: pkgDir,
@@ -288,6 +323,7 @@ function startTailscaleWatcher() {
   });
   fs.closeSync(log);
   child.unref();
+  ensureDataDirectory(watcherPidPath); // local: create data directory before writing watcher pid.
   fs.writeFileSync(watcherPidPath, String(child.pid));
   return child.pid;
 }
@@ -368,6 +404,7 @@ async function start() {
   }
 
   const tailnet = initialTailscaleSetup(config);
+  ensureDataDirectory(logPath); // local: create data directory before writing logs.
   const log = fs.openSync(logPath, "a");
   fs.writeSync(log, `\n--- pi-web start ${new Date().toISOString()} ---\n`);
   const child = spawn(process.execPath, [upstreamBin, "-p", config.port, "-H", HOST, "--no-open"], {
@@ -378,6 +415,7 @@ async function start() {
   });
   fs.closeSync(log);
   child.unref();
+  ensureDataDirectory(pidPath); // local: create data directory before writing pid.
   fs.writeFileSync(pidPath, String(child.pid));
 
   for (let waited = 0; waited < 60_000; waited += 500) {
@@ -403,12 +441,15 @@ async function stop() {
   const noServer = selection.error?.startsWith("No pi-web server is running");
   const pid = record?.stopPid ?? (noServer ? runningPid() : null);
   if (!pid) {
+    let mapping = "absent";
     if (noServer) {
       const watcherStopped = await stopTailscaleWatcher();
-      if (watcherStopped && config.tailscale) disableTailscale(config);
+      if (watcherStopped && config.tailscale) mapping = disableTailscale(config);
       if (!watcherStopped) process.exitCode = 1;
     }
     console.log(selection.error && !noServer ? `pi-web: ${selection.error}` : "pi-web: not running.");
+    if (mapping === "removed") console.log(`pi-web: removed the leftover Tailscale :${config.tailscalePort} mapping.`);
+    if (mapping === "kept") warnKeptMapping(config);
     return;
   }
   // A non-orphan record's detached launcher owns its process group. An
@@ -446,8 +487,9 @@ async function stop() {
     process.exitCode = 1;
     return;
   }
-  if (config.tailscale) disableTailscale(config);
+  const mapping = config.tailscale ? disableTailscale(config) : "absent";
   console.log(`pi-web: stopped (pid ${pid}).`);
+  if (mapping === "kept") warnKeptMapping(config);
 }
 
 async function status() {
@@ -468,16 +510,34 @@ async function status() {
   console.log(`pi-web: Tailscale watcher ${watcherPid ? `running (pid ${watcherPid})` : "not running"}.`);
   if (config.tailscale) {
     const snapshot = getTailscaleStatus();
-    if (snapshot.dnsName && isOurServeMapping(config)) {
-      console.log(`pi-web: https://${snapshot.dnsName}:${config.tailscalePort} (Tailscale)`);
-    } else if (snapshot.error) {
+    const mapped = isOurServeMapping(config);
+    const serverUp = Boolean(pid) || answering;
+    const port = `:${config.tailscalePort}`;
+    if (snapshot.error) {
       console.log(`Tailscale: ${firstLine(snapshot.error)}`);
     } else if (!snapshot.running) {
+      if (serverUp) {
+        console.log(watcherPid
+          ? "Tailscale: stopped; the watcher connects pi-web when it starts."
+          : "Tailscale: stopped; no watcher is running, so pi-web will not connect on its own.");
+      } else {
+        console.log(mapped
+          ? `Tailscale: stopped; a leftover ${port} mapping is kept and is removed by \`pi-web status\` or \`pi-web stop\` once Tailscale runs.`
+          : "Tailscale: stopped.");
+      }
+    } else if (serverUp && mapped && snapshot.dnsName) {
+      console.log(`pi-web: https://${snapshot.dnsName}${port} (Tailscale)`);
+    } else if (serverUp) {
       console.log(watcherPid
-        ? "Tailscale: stopped; watcher will connect when it starts."
-        : "Tailscale: stopped; no watcher is running.");
+        ? `Tailscale: running; the watcher adds the ${port} mapping within 30 s.`
+        : `Tailscale: running, but the ${port} mapping is not active and no watcher is running.`);
+    } else if (mapped) {
+      const result = disableTailscale(config);
+      console.log(result === "removed"
+        ? `Tailscale: removed the leftover ${port} mapping (pi-web is not running).`
+        : `Tailscale: a leftover ${port} mapping could not be removed.`);
     } else {
-      console.log("Tailscale: pi-web serve mapping is not active.");
+      console.log("Tailscale: running; pi-web is not served.");
     }
   }
 }
@@ -533,14 +593,14 @@ Commands:
   update --check             Check for an update (never installs)
   help, -h, --help           Show this help
 
-Config file: ${configPath}
+Config file: ${configPath} (migrated automatically from ~/.pi/agent)
   port        Server port (default 30141)
   open        Open the browser on start (default true)
   tailscale   Also serve over Tailscale HTTPS (default false)
   tailscalePort Tailscale HTTPS port (default 8443)
   password    Require this password (sets PI_WEB_PASSWORD)
 
-Background files: ${pidPath}, ${watcherPidPath}, ${logPath}
+Background files: ${pidPath}, ${watcherPidPath}, ${logPath} (migrated automatically from ~/.pi/agent)
 
 Foreground options (from the upstream launcher):
 `);
@@ -591,4 +651,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { dnsNameFromStatus, isServeMappingPresent, parseConfig, parseTailscalePort };
+module.exports = { dnsNameFromStatus, isServeMappingPresent, parseConfig, parseTailscalePort, piWebDataPath }; // local: expose migration helper for isolated tests.

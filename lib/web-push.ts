@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync } from "fs";
-import { dirname, join } from "path";
+import { dirname } from "path"; // local: state writes create the containing directory.
 import webpush from "web-push";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { enLocale } from "./i18n/messages/en";
 import { zhCNLocale } from "./i18n/messages/zh-CN";
 import { getAgentDir } from "./session-reader";
+import { piWebDataPath } from "./local/pi-web-data"; // local: preserve push state in pi-web/.
 
 export interface PushSubscriptionRecord {
   endpoint: string;
@@ -35,8 +36,8 @@ export interface WebPushNotifier {
   notifySessionComplete: (sessionId: string, sessionName?: string) => Promise<void>;
 }
 
-function stateFilePath(): string {
-  return join(getAgentDir(), "web-push.json");
+function stateFilePath(): string { // local: migrate and resolve under pi-web/.
+  return piWebDataPath("web-push.json", getAgentDir());
 }
 
 /**
@@ -84,7 +85,7 @@ function getDefaultEnvironment(): WebPushEnvironment {
     },
     saveState(state) {
       const path = stateFilePath();
-      mkdirSync(dirname(path), { recursive: true });
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); // local: keep pi-web data directory private.
       writePrivateFileAtomicSync(path, JSON.stringify(state));
     },
     generateVapidKeys: () => webpush.generateVAPIDKeys(),

@@ -4,13 +4,14 @@
 // that changed, which a later normal listing hydrates.
 // ponytail: size/mtime fingerprints miss same-size edits with restored mtime;
 // use content hashes if detecting those edits becomes necessary.
-import { closeSync, createReadStream, existsSync, openSync, readFileSync, readSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync } from "node:fs"; // local: create index directory before persistence.
 import { readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path"; // local: index persistence uses its path's directory.
 import { createInterface } from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { piWebDataPath } from "./local/pi-web-data"; // local: keep pi-web index in its own data directory.
 
 export interface ScannedSessionInfo {
 	path: string;
@@ -288,8 +289,8 @@ function getIndex(): Map<string, IndexEntry> {
 	return globalThis.__piWebScanIndex;
 }
 
-function indexFilePath(): string {
-	return join(getAgentDir(), "pi-web-session-index.json");
+function indexFilePath(): string { // local: migrate and resolve under pi-web/.
+	return piWebDataPath("pi-web-session-index.json", getAgentDir());
 }
 
 function loadPersistedIndex(): void {
@@ -347,8 +348,10 @@ function queueIndexPersist(): void {
 		try {
 			const entries: Record<string, IndexEntry> = {};
 			for (const [pathKey, entry] of getIndex()) entries[pathKey] = entry;
+			const path = indexFilePath();
+			mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); // local: path resolution is read-only; create the private directory for writes.
 			writePrivateFileAtomicSync(
-				indexFilePath(),
+				path,
 				JSON.stringify({ version: INDEX_FORMAT_VERSION, entries }),
 			);
 		} catch {

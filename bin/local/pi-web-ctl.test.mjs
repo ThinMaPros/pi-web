@@ -1,9 +1,38 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createRequire } from "node:module";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const require = createRequire(import.meta.url);
-const { dnsNameFromStatus, isServeMappingPresent, parseConfig, parseTailscalePort } = require("./pi-web-ctl.js");
+const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+const testAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-ctl-test-"));
+process.env.PI_CODING_AGENT_DIR = testAgentDir;
+const { dnsNameFromStatus, isServeMappingPresent, parseConfig, parseTailscalePort, piWebDataPath } = require("./pi-web-ctl.js");
+test.after(() => {
+  if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+  fs.rmSync(testAgentDir, { recursive: true, force: true });
+});
+
+test("CLI data path resolution without a legacy file creates nothing", () => {
+  assert.equal(fs.existsSync(path.join(testAgentDir, "pi-web")), false);
+});
+
+test("CLI data path migrates a legacy file and preserves an existing destination", () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-ctl-migration-"));
+  try {
+    fs.writeFileSync(path.join(agentDir, "pi-web.pid"), "legacy");
+    const migrated = piWebDataPath("pi-web.pid", agentDir);
+    assert.equal(fs.readFileSync(migrated, "utf8"), "legacy");
+    fs.writeFileSync(path.join(agentDir, "pi-web.pid"), "older");
+    assert.equal(fs.readFileSync(piWebDataPath("pi-web.pid", agentDir), "utf8"), "legacy");
+    assert.equal(fs.readFileSync(path.join(agentDir, "pi-web.pid"), "utf8"), "older");
+  } finally {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
 
 test("tailscalePort defaults to 8443 and rejects invalid and reserved values", () => {
   assert.deepEqual(parseTailscalePort(undefined), { port: 8443, warnings: [] });

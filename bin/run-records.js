@@ -26,7 +26,7 @@ function getAgentDir(env = process.env, home = os.homedir()) {
 }
 
 function getRunDir(env = process.env, home = os.homedir()) {
-  return path.join(getAgentDir(env, home), "pi-web-run");
+  return path.join(getAgentDir(env, home), "pi-web", "run"); // local: pi-web's data lives in <agentDir>/pi-web/
 }
 
 // The address a browser on this machine can open: wildcard binds become
