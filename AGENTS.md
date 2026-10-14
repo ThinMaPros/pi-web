@@ -1,5 +1,23 @@
 # Pi Web - Development Notes
 
+## Local fork (read first)
+
+This checkout is a personal fork for local use only.
+
+- Remotes: `upstream` = agegr/pi-web (pull updates only), `origin` = ThinMaPros/pi-web (backup). Work on branch `local`; update with `git fetch upstream && git rebase upstream/main`.
+- Never `git pull` or merge on this checkout — rebase rewrites history, so after a rebase `local` and `origin/local` diverge and `git pull` would create a merge commit that ruins the flat history. Push after a rebase with `git push --force-with-lease origin local`, never a plain `git push`.
+- Never open PRs or issues upstream. Push only to `origin`, and only when the user asks. Do not commit unless asked. Do not suggest or ask about pushing either; the user raises it when needed.
+- Keep local changes easy to rebase: put new code in `components/local/` or `lib/local/`, wire it into upstream files with as few lines as possible, and mark those lines with a `local:` comment. ("Upstream files" means files that come from agegr/pi-web and are edited in this fork; nothing is ever sent upstream.)
+- Running `pi-web` (npm-linked; bin is `bin/local/pi-web-ctl.js`, config `~/.pi/agent/pi-web.json`):
+  - It serves the production build. After code changes: `pi-web stop && npm run build && pi-web start --no-open`.
+  - Never run `npm run dev` while `pi-web` is up (both use `.next/`).
+  - Tailscale serves on its own HTTPS port (`tailscalePort`, default 8443), never 443: another tool (Herdr web UI) owns 443. A detached watcher (`pi-web-tailscale-watch.pid`) re-adds only that mapping every 30 s once Tailscale runs, so starting at home with Tailscale off and turning it on later connects without a restart.
+  - `pi-web update` refuses on purpose (`npm install -g` would replace the linked fork); `version`, `open` and `update --check` go to the upstream launcher.
+- Finding local changes: `git log upstream/main..local` and `grep -rn "local:"`.
+  - `lib/local/context-view/` is a verbatim MIT copy of pi-context-view; re-sync by re-copying.
+  - Some upstream tests assert on source text or run extracted function bodies (e.g. `components/AppShell.session-delete.test.mjs`); a local edit may need a matching `local:` tweak there.
+  - The folded live turn lives in `components/local/LiveTurnView.tsx`: it alone subscribes to the streaming store, so ChatWindow is not re-rendered per chunk (upstream e8d91ef).
+
 ## Quick Start
 
 ```bash
