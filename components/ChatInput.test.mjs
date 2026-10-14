@@ -350,7 +350,7 @@ test("keeps the model selector visible when a model error leaves no options", ()
   assert.match(html, /title="No available models"/);
 });
 
-test("renders the read-only tool preset as the active selection", () => {
+test.skip("renders the read-only tool preset as the active selection" /* local: preset picker hidden by components/local/InputControls.tsx */, () => {
   const html = renderToStaticMarkup(
     React.createElement(
       I18nProvider,
@@ -369,7 +369,7 @@ test("renders the read-only tool preset as the active selection", () => {
   assert.match(html, />read-only<\/span>/);
 });
 
-test("renders the empty tool preset as Chat only", () => {
+test.skip("renders the empty tool preset as Chat only" /* local: preset picker hidden by components/local/InputControls.tsx */, () => {
   const html = renderToStaticMarkup(
     React.createElement(
       I18nProvider,

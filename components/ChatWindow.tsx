@@ -9,6 +9,7 @@ import { splitNoticeText } from "@/lib/notice-text";
 import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { collapsesProcessDetails, countToolCallBlocks, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { lastResponseUsage } from "./local/InputControls"; // local: context meter
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/lib/turn-views";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
@@ -23,6 +24,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { phaseLabel } from "@/lib/chat-phase-label";
 import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
 import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
+import { planLiveTurn } from "@/lib/local/live-turn"; // local: folded live turn layout
+import { LiveTurnView } from "./local/LiveTurnView"; // local: isolate chunk subscriptions from ChatWindow
 import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -827,6 +830,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
+  // local: ChatWindow reads only coarse stream state; LiveTurnView owns streamed-message updates.
+  const hasFoldedLiveTail = (sessionBusy || isStreaming) && messages.length > 0;
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
@@ -982,6 +987,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
+      contextUsage={contextUsage} lastUsage={lastResponseUsage(messages)} /* local: context meter */
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
       onAttachFiles={onAttachFiles}
@@ -1179,18 +1185,38 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 let endIdx = idx + 1;
                 while (endIdx < messages.length && !isMessageGroupAnchor(messages[endIdx])) endIdx += 1;
 
-                const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
-
-                if (finalAssistantIdx === -1) {
-                  for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
-                  }
+                const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
+                if (isLiveTail) { // local: fold all live-turn process entries into one subscriber-owned group
+                  if (hasAnchor) rendered.push(renderMessage(userIdx));
+                  const livePlan = planLiveTurn(messages, userIdx, endIdx, null);
+                  const liveProcessViews = livePlan.process.map(({ idx: processIdx, override }) => renderMessage(processIdx, {
+                    attachRef: false,
+                    keyPrefix: "live-process",
+                    messageOverride: override,
+                    showTimestamp: false,
+                  }));
+                  const liveAnswer = livePlan.answer ? renderMessage(livePlan.answer.idx, { messageOverride: livePlan.answer.override }) : null;
+                  rendered.push(<LiveTurnView
+                    key={`live-process-${entryIds[groupStartIdx] ?? groupStartIdx}`}
+                    store={streamingStore}
+                    onCommit={updatePromptAnchor} // local: keep the prompt-anchor spacer aligned with streamed chunks
+                    t={t}
+                    messageCount={livePlan.messageCount}
+                    toolCallCount={livePlan.toolCallCount}
+                    toolResults={toolResultsMap}
+                    modelNames={modelNames}
+                    cwd={messageCwd}
+                    onOpenFile={onOpenFile}
+                    onOpenSubagent={onOpenSubagent}
+                    answer={liveAnswer}
+                  >{liveProcessViews}</LiveTurnView>);
+                  for (const restIdx of livePlan.rest) rendered.push(renderMessage(restIdx));
                   idx = endIdx;
                   continue;
                 }
 
-                const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
-                if (isLiveTail) {
+                const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
+                if (finalAssistantIdx === -1) {
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
                   }
@@ -1288,7 +1314,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 </>
               );
             })()}
-            {isStreaming && hasStreamingContent && (
+            {isStreaming && hasStreamingContent && !hasFoldedLiveTail && ( /* local: show StreamingReply before any committed turn messages exist */
               <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
             )}
 

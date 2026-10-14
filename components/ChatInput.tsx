@@ -35,6 +35,9 @@ import { useFontPreferences } from "@/hooks/useFontPreferences";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { SelectorRow } from "./SelectorRow";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { AccountButton } from "./local/AccountButton"; // local
+import { ContextMeter, HIDDEN_UPSTREAM, ToolsButton } from "./local/InputControls"; // local: context meter + tools menu
+import { filterAccountModels } from "@/lib/local/account-models"; // local
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -94,6 +97,8 @@ interface Props {
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null; // local: context meter
+  lastUsage?: import("@/lib/types").AgentUsage | null; // local: context meter
   onAudioUnlock?: () => void;
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
@@ -657,7 +662,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
-  soundEnabled, onSoundToggle, onAudioUnlock,
+  soundEnabled, onSoundToggle, onAudioUnlock, contextUsage, lastUsage, /* local: context meter */
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -1640,7 +1645,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelSelectorOption[] = (() => {
     if (modelList && modelList.length > 0) {
-      return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }));
+      // local: only the current pi-codex-claude account's models
+      return filterAccountModels(modelList, model?.provider).map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }));
     }
     return Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
       provider: model?.provider ?? "unknown",
@@ -2451,6 +2457,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 onSetDefault={onSetDefaultModel}
               />
             )}
+            {/* local: pi-codex-claude account switcher */}
+            <AccountButton provider={model?.provider} isStreaming={isStreaming} onSend={(message) => onSend(message)} onLoadSlashCommands={onLoadSlashCommands} />
+            <ContextMeter usage={contextUsage} last={lastUsage} />{/* local: context meter */}
           </div>
 
           {/* spacer */}
@@ -2623,7 +2632,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 )}
               </div>
             )}
-            {!isStreaming && onToolPresetChange && (
+            {!isStreaming && <ToolsButton onSend={(message) => onSend(message)} />}{/* local: tools menu replaces the preset picker */}
+            {!isStreaming && onToolPresetChange && !HIDDEN_UPSTREAM.toolPreset && ( /* local: hidden */
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={(e) => { if (!isStreaming && !isStrayClick(e)) setToolDropdownOpen((v) => !v); }}
@@ -2775,7 +2785,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </button>
             )}
 
-            {onSoundToggle !== undefined && (
+            {onSoundToggle !== undefined && !HIDDEN_UPSTREAM.sound && ( /* local: hidden */
               <button
                 onClick={onSoundToggle}
                  title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")}

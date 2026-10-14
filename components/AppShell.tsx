@@ -15,6 +15,8 @@ import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDial
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
+import { ContextPanel, ContextPanelButton } from "./local/ContextPanel"; // local: Context panel
+import { removeSessionTab, SessionTabs } from "./local/SessionTabs"; // local: session tabs
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { SubagentViewer } from "./SubagentViewer";
 import { TerminalPanel } from "./TerminalPanel";
@@ -173,12 +175,19 @@ export function AppShell() {
   );
   const hasSubagentSessions = Boolean(activeSessionFamily?.subagents.length);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set()); // local: session tabs
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
       if (previous.size === ids.size && [...ids].every((id) => previous.has(id))) return previous;
       return ids;
     });
   }, []);
+  const handleAwaitingInputSessionIdsChange = useCallback((ids: Set<string>) => { // local: session tabs
+    setAwaitingInputSessionIds((previous) => { // local: session tabs
+      if (previous.size === ids.size && [...ids].every((id) => previous.has(id))) return previous; // local: session tabs
+      return ids; // local: session tabs
+    }); // local: session tabs
+  }, []); // local: session tabs
   // The temporary id distinguishes consecutive fresh composers in one cwd.
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
@@ -379,7 +388,7 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | "context" | null>(null); // local: + "context"
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -399,7 +408,7 @@ export function AppShell() {
   }, [rightPanelFullWidth]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session",
+    panel: "agents" | "branches" | "system" | "tools" | "session" | "context", // local: + "context"
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -1138,6 +1147,7 @@ export function AppShell() {
   const handleSessionDeleted = useCallback((sessionId: string) => {
     invalidateWorkspaceRestore();
     setRefreshKey((k) => k + 1);
+    removeSessionTab(sessionId); // local: session tabs
     // The DELETE can outlive a session switch: this callback's captured
     // selectedSession is from the delete click. Read the latest selection
     // and only fall back to the empty composer when the user is still on
@@ -1420,6 +1430,7 @@ export function AppShell() {
         onAtMentions={handleAtMentions}
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
+        onAwaitingInputSessionIdsChange={handleAwaitingInputSessionIdsChange} // local: session tabs
         onSessionsChange={handleSessionsChange}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
@@ -1816,6 +1827,7 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("tools.label")}</span>}
         </button>
+        <ContextPanelButton active={activeTopPanel === "context"} mobile={mobile} disabled={mobile && !showChat} size={TOP_BAR_ICON_BUTTON_SIZE} onClick={() => toggleTopPanel("context", mobile)} />{/* local: Context panel */}
       </div>
     );
   };
@@ -2316,6 +2328,7 @@ export function AppShell() {
                   translate={translate}
                 />
               )}
+              {activeTopPanel === "context" && <ContextPanel sessionId={selectedSession?.id ?? null} />}{/* local: Context panel */}
               {activeTopPanel === "session" && (
                 <div className="session-info-popover" style={{
                   background: "var(--bg-panel)",
@@ -2528,6 +2541,7 @@ export function AppShell() {
         </div>
         {isMobile && renderProjectTrustWarning(true)}
         </div>
+        <SessionTabs hidden={isMobile} activeSession={selectedSession} sessions={sessionCatalog} runningSessionIds={runningSessionIds} awaitingInputSessionIds={awaitingInputSessionIds} onSelectSession={handleSelectSession} onNewSession={handleNewSession} />{/* local: session tabs */}
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
