@@ -1,0 +1,73 @@
+/* local: wallpaper support. Active only while <html data-wallpaper> is set by
+   components/local/Wallpaper.tsx. Surfaces become translucent by overriding the
+   theme tokens, so no upstream component needs to change. The --wp-* values are the
+   user's tuning (see lib/local/wallpaper-store.ts). */
+
+.local-wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter: brightness(var(--wp-brightness, 1)) saturate(var(--wp-saturation, 1));
+  /* Own compositor layer: scrolling and typing never repaint the image. */
+  transform: translateZ(0);
+}
+
+html[data-wallpaper],
+html[data-wallpaper] body {
+  background: transparent;
+}
+
+/* Base colours per theme; the shared block below mixes them with transparency. */
+html[data-wallpaper] {
+  --wp-bg: #ffffff;
+  --wp-panel: #f5f5f5;
+  --wp-user: #eff6ff;
+  --wp-tool: #f9fafb;
+}
+html[data-wallpaper].dark,
+html[data-wallpaper][data-theme="dark"] {
+  --wp-bg: #1a1a1a;
+  --wp-panel: #242424;
+  --wp-user: #292929;
+  --wp-tool: #222222;
+}
+html[data-wallpaper][data-theme="mist"] {
+  --wp-bg: #f4f8f7;
+  --wp-panel: #e9f0ee;
+  --wp-user: #e0efeb;
+  --wp-tool: #ecf3f0;
+}
+html[data-wallpaper][data-theme="rose"] {
+  --wp-bg: #fcf7f8;
+  --wp-panel: #f3edef;
+  --wp-user: #f3e4eb;
+  --wp-tool: #f7eef2;
+}
+html[data-wallpaper][data-theme="pine"] {
+  --wp-bg: #19201f;
+  --wp-panel: #212b28;
+  --wp-user: #25382f;
+  --wp-tool: #222d29;
+}
+
+/* Only the layout shells become translucent. Theme tokens stay opaque so
+   dropdowns, dialogs and code blocks keep their normal backgrounds. The shells
+   use inline styles upstream, hence !important. */
+html[data-wallpaper] div:has(> .sidebar-container) {
+  background: color-mix(in srgb, var(--wp-bg) var(--wp-surface, 80%), transparent) !important;
+}
+/* Panels drawn over the app base: sidebar, top bar, minimap strip. 0% tint
+   makes them look exactly like the chat area. */
+html[data-wallpaper] .sidebar-container,
+html[data-wallpaper] div:has(> .sidebar-container) > div:not(.sidebar-container) > div[style*="--bg-panel"]:first-child,
+html[data-wallpaper] div.relative.flex.min-h-0.min-w-0.flex-1.overflow-hidden > div[style*="--bg-panel"] {
+  background: color-mix(in srgb, var(--wp-panel) var(--wp-panel-tint, 20%), transparent) !important;
+}
+/* Composer box: same opacity as the base, stacked on it, so typing stays crisp. */
+html[data-wallpaper] div:has(> textarea.chat-input-textarea) {
+  background: color-mix(in srgb, var(--wp-bg) var(--wp-surface, 80%), transparent) !important;
+}
